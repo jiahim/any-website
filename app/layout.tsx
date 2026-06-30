@@ -12,8 +12,8 @@ const spaceGrotesk = Space_Grotesk({
   variable: "--font-display",
 });
 
-const hostUrl = process.env.NEXT_PUBLIC_HOST_URL;
 const analyticsUrl = process.env.NEXT_PUBLIC_ANALYTICS_URL;
+const analyticsWebsiteId = process.env.NEXT_PUBLIC_ANALYTICS_WEBSITE_ID;
 
 export const metadata: Metadata = {
   title: "网站任意门",
@@ -42,7 +42,7 @@ export default function RootLayout({
         </Script>
         {children}
         {analyticsUrl && (
-          <Script defer data-domain={hostUrl} src={analyticsUrl} />
+          <Script defer src={analyticsUrl} data-website-id={analyticsWebsiteId} />
         )}
       </body>
     </html>
