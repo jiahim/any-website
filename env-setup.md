@@ -7,6 +7,10 @@ SILICON_FLOW_API_KEY=your_api_key_here
 # 硅基流动使用的模型
 SILICON_FLOW_MODEL=Qwen/Qwen3-8B
 
+# [可选] 模型供应商，决定用哪种方式关闭思考模式：qwen / minimax / unknown
+# 留空时根据模型名与端点自动识别，仅在识别不准时才需要显式指定
+# MODEL_PROVIDER=minimax
+
 # 最大token数，注意根据使用的模型进行调整
 MAX_TOKENS=8192
 

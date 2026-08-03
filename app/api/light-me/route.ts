@@ -1,9 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { stripThinkContent } from '@/app/lib/thinkFilter';
+import {
+  buildThinkingRequestOptions,
+  getNoThinkPromptSuffix,
+  resolveModelProvider,
+} from '@/app/lib/modelProvider';
 
 // 从环境变量获取配置
 const apiEndpoint = process.env.SILICON_FLOW_API_ENDPOINT;
 const apiKey = process.env.SILICON_FLOW_API_KEY;
 const model = process.env.SILICON_FLOW_FREE_MODEL;
+// 可选：显式指定模型供应商（minimax / qwen / unknown），留空时按模型名与端点自动识别
+const providerOverride = process.env.MODEL_PROVIDER;
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,13 +79,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 识别供应商，决定用哪套关闭思考的方案
+    const provider = resolveModelProvider(model, {
+      endpoint: apiEndpoint,
+      override: providerOverride,
+    });
+
     // 构建提示词
     const historyText = history.length > 0
       ? `用户之前已经探索过的领域词汇：${history.slice(0, 20).join('、')}${history.length > 20 ? '等' : ''}。`
       : '用户是第一次使用此功能。';
 
     const prompt = `我想随机了解一个词汇以跳出信息茧房，可以是学习、娱乐、艺术、热点事件等词汇不限，请给我一个词，直接回复给我，不要做任何说明。` +
-      `${historyText}请避免重复用户已经探索过的领域。_nothink`;
+      `${historyText}请避免重复用户已经探索过的领域。${getNoThinkPromptSuffix(provider)}`;
 
     console.log("🚀 ~ light-me ~ prompt:", prompt);
 
@@ -96,6 +110,7 @@ export async function POST(request: NextRequest) {
             content: prompt
           }
         ],
+        ...buildThinkingRequestOptions(provider),
       }),
     });
 
@@ -106,7 +121,11 @@ export async function POST(request: NextRequest) {
     }
 
     const responseData = await response.json();
-    const randomWord = responseData.choices?.[0]?.message?.content?.trim();
+    // 兜底剥离思考内容：部分模型（如 MiniMax M2.x）无法关闭思考，会把 <think> 混在 content 里
+    const rawContent = responseData.choices?.[0]?.message?.content;
+    const randomWord = typeof rawContent === 'string'
+      ? stripThinkContent(rawContent).trim()
+      : undefined;
 
     if (!randomWord) {
       return new NextResponse(

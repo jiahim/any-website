@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isBot } from '@/app/lib/botDetection';
 import { isValidSearchPath } from '@/app/lib/pathFilter';
+import { createThinkFilterTransform } from '@/app/lib/sseThinkFilter';
+import {
+  buildThinkingRequestOptions,
+  getNoThinkPromptSuffix,
+  resolveModelProvider,
+  type ModelProvider,
+} from '@/app/lib/modelProvider';
 
 // 从环境变量获取配置
 const apiEndpoint = process.env.SILICON_FLOW_API_ENDPOINT;
 const apiKey = process.env.SILICON_FLOW_API_KEY;
 const model = process.env.SILICON_FLOW_MODEL;
+// 可选：显式指定模型供应商（minimax / qwen / unknown），留空时按模型名与端点自动识别
+const providerOverride = process.env.MODEL_PROVIDER;
 const hostUrl = `http://${process.env.NEXT_PUBLIC_HOST_URL}`;
 const maxTokens = parseInt(process.env.MAX_TOKENS || '4096', 10);
 
@@ -108,8 +117,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 识别供应商，决定用哪套关闭思考的方案
+    const provider = resolveModelProvider(model, {
+      endpoint: apiEndpoint,
+      override: providerOverride,
+    });
+    console.log("🚀 ~ stream ~ provider:", provider);
+
     // 构建提示词
-    const prompt = buildPromptFromPath(path, userAgent);
+    const prompt = buildPromptFromPath(path, userAgent, provider);
 
     const options = {
       method: 'POST',
@@ -127,7 +143,7 @@ export async function POST(request: NextRequest) {
         ],
         stream: true,
         max_tokens: maxTokens,
-        chat_template_kwargs: { enable_thinking: false },
+        ...buildThinkingRequestOptions(provider),
       }),
     }
 
@@ -140,9 +156,13 @@ export async function POST(request: NextRequest) {
       return new NextResponse(`API请求失败: ${response.status}`, { status: response.status });
     }
 
-    // 流式转发响应
-    console.log("🚀 ~ POST ~ response.body:", response.body)
-    return new NextResponse(response.body, {
+    if (!response.body) {
+      console.error('上游API未返回流式响应体');
+      return new NextResponse('上游API未返回流式响应体', { status: 502 });
+    }
+
+    // 流式转发响应，并剥离推理模型混在 content 中的 <think> 思考内容
+    return new NextResponse(response.body.pipeThrough(createThinkFilterTransform()), {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -244,7 +264,7 @@ function getRandomTheme(): Theme {
 // ============================================================
 
 // 根据路径构建提示词
-function buildPromptFromPath(path: string, userAgent: string): string {
+function buildPromptFromPath(path: string, userAgent: string, provider: ModelProvider): string {
   const pathSegments = path.split('/').filter(segment => segment.trim() !== '');
 
   // 分析 User-Agent 获取设备信息
@@ -267,7 +287,9 @@ function buildPromptFromPath(path: string, userAgent: string): string {
   const designLayer = buildDesignLayer(theme);
   const structureLayer = buildStructureLayer(path, deviceType, browserInfo);
 
-  return `${baseLayer}\n\n${designLayer}\n\n${structureLayer}\n\n_nothink`;
+  const noThinkSuffix = getNoThinkPromptSuffix(provider);
+
+  return `${baseLayer}\n\n${designLayer}\n\n${structureLayer}${noThinkSuffix ? `\n\n${noThinkSuffix}` : ''}`;
 }
 
 // ---- 基础层：角色设定 + 反 AI Slop 美学引导 ----
