@@ -79,6 +79,7 @@ export default function StreamRenderer({ path }: StreamRendererProps) {
         isLoading={isLoading}
         streamData={streamData}
         renderStage={renderStage}
+        path={path}
       />
     </>
   );

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripThinkContent } from '@/app/lib/thinkFilter';
+import {
+  extractChineseRandomWord,
+  pickFallbackRandomWord,
+  sanitizeRandomWordHistory,
+} from '@/app/lib/randomWord';
 import {
   buildThinkingRequestOptions,
   getNoThinkPromptSuffix,
@@ -36,7 +40,7 @@ export async function POST(request: NextRequest) {
       return new NextResponse('历史记录格式不正确', { status: 400 });
     }
 
-    console.log("🚀 ~ light-me ~ history:", history);
+    const safeHistory = sanitizeRandomWordHistory(history);
 
     // 验证必要的环境变量
     if (!apiEndpoint) {
@@ -85,60 +89,72 @@ export async function POST(request: NextRequest) {
       override: providerOverride,
     });
 
-    // 构建提示词
-    const historyText = history.length > 0
-      ? `用户之前已经探索过的领域词汇：${history.slice(0, 20).join('、')}${history.length > 20 ? '等' : ''}。`
-      : '用户是第一次使用此功能。';
+    const systemPrompt = [
+      '你是一个随机中文词汇生成器。',
+      '每次只输出一个简体中文词语，长度为 1 至 8 个汉字。',
+      '禁止输出英文、拼音、完整句子、标点、引号、序号、解释或思考过程。',
+      '词语应来自学习、娱乐、艺术、科技、自然、社会或当代文化等不同领域。',
+    ].join('');
+    const historyText = safeHistory.length > 0
+      ? `以下是已经探索过的词汇，请避开相同词汇及相近领域：${JSON.stringify(safeHistory)}。`
+      : '目前没有已探索词汇。';
 
-    const prompt = `我想随机了解一个词汇以跳出信息茧房，可以是学习、娱乐、艺术、热点事件等词汇不限，请给我一个词，直接回复给我，不要做任何说明。` +
-      `${historyText}请避免重复用户已经探索过的领域。${getNoThinkPromptSuffix(provider)}`;
-
-    console.log("🚀 ~ light-me ~ prompt:", prompt);
-
-    // 请求硅基流动API
-    const response = await fetch(apiEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        ...buildThinkingRequestOptions(provider),
-      }),
+    console.log('🚀 ~ light-me ~ request:', {
+      provider,
+      historyCount: safeHistory.length,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('硅基流动API错误:', response.status, errorText);
-      return new NextResponse(`API请求失败: ${response.status}`, { status: response.status });
-    }
+    let randomWord: string | null = null;
 
-    const responseData = await response.json();
-    // 兜底剥离思考内容：部分模型（如 MiniMax M2.x）无法关闭思考，会把 <think> 混在 content 里
-    const rawContent = responseData.choices?.[0]?.message?.content;
-    const randomWord = typeof rawContent === 'string'
-      ? stripThinkContent(rawContent).trim()
-      : undefined;
+    // 首次输出不合规时纠正重试一次，最终仍有本地中文词池兜底
+    for (let attempt = 0; attempt < 2 && !randomWord; attempt++) {
+      const correction = attempt === 1
+        ? '上一次输出不符合格式。重新选择，只能输出一个中文词语。'
+        : '';
+      const prompt = `${historyText}${correction}${getNoThinkPromptSuffix(provider)}`;
 
-    if (!randomWord) {
-      return new NextResponse(
-        JSON.stringify({
-          error: '获取随机词汇失败',
-          message: '无法从API响应中提取词汇'
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 32,
+          temperature: 0.8,
+          top_p: 0.8,
+          top_k: 20,
+          ...buildThinkingRequestOptions(provider),
         }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('硅基流动API错误:', response.status, errorText);
+        return new NextResponse(`API请求失败: ${response.status}`, { status: response.status });
+      }
+
+      const responseData = await response.json();
+      // 独立 reasoning_content 不读取；混入 content 的 <think> 再由过滤器兜底剥离
+      const rawContent = responseData.choices?.[0]?.message?.content;
+      if (typeof rawContent === 'string') {
+        randomWord = extractChineseRandomWord(rawContent);
+      }
+
+      if (!randomWord) {
+        console.warn('light-me 模型输出不符合单个中文词语格式，准备重试', {
+          attempt: attempt + 1,
+          contentLength: typeof rawContent === 'string' ? rawContent.length : 0,
+        });
+      }
     }
+
+    randomWord ??= pickFallbackRandomWord(safeHistory);
 
     console.log("🚀 ~ light-me ~ randomWord:", randomWord);
 

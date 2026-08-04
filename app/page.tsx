@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { sanitizeRandomWordHistory } from "@/app/lib/randomWord";
 
 // 本地存储键名
 const RANDOM_WORDS_KEY = "random_words_history";
@@ -39,8 +40,14 @@ export default function Home() {
     try {
       const saved = localStorage.getItem(RANDOM_WORDS_KEY);
       if (saved) {
-        const words = JSON.parse(saved);
-        setRandomWordsHistory(Array.isArray(words) ? words : []);
+        const parsed = JSON.parse(saved);
+        const words = sanitizeRandomWordHistory(parsed, MAX_WORDS);
+        setRandomWordsHistory(words);
+
+        // 清掉旧版本误存的提示词、英文句子和思考内容，避免继续污染后续请求
+        if (JSON.stringify(parsed) !== JSON.stringify(words)) {
+          localStorage.setItem(RANDOM_WORDS_KEY, JSON.stringify(words));
+        }
       }
     } catch (error) {
       console.error("加载随机词汇历史失败:", error);

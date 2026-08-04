@@ -1,29 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { cleanMarkdownCodeBlock } from "@/app/lib/htmlExport";
 
 interface IframeRendererProps {
   streamData: string;
   error: string | null;
   onNavigate?: (href: string) => void;
-}
-
-/**
- * 清理 AI 输出中可能包含的 Markdown 代码块标记
- */
-function cleanMarkdownCodeBlock(content: string): string {
-  let cleaned = content.trim();
-  // 移除开头的 ```html 或 ```
-  if (cleaned.startsWith("```html")) {
-    cleaned = cleaned.substring(7);
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.substring(3);
-  }
-  // 移除结尾的 ```
-  if (cleaned.endsWith("```")) {
-    cleaned = cleaned.substring(0, cleaned.length - 3);
-  }
-  return cleaned;
 }
 
 /**

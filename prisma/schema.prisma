@@ -57,3 +57,19 @@ model SearchRecord {
 
   @@map("search_records")
 }
+
+// HTML 下载记录模型
+// - 用途：记录下载元数据，不保存生成的 HTML 全文
+model DownloadRecord {
+  id        String   @id @default(cuid())
+  path      String
+  fileName  String
+  byteSize  Int
+  userAgent String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([path])
+  @@index([createdAt])
+  @@map("download_records")
+}

@@ -2,7 +2,7 @@
  * 模型供应商识别与"关闭思考"参数隔离
  *
  * 不同供应商关闭思考模式的方式完全不同，混着传会失效甚至被网关拒绝：
- * - Qwen3（硅基流动）：chat_template_kwargs.enable_thinking = false，另有 _nothink 提示词软开关
+ * - Qwen3（硅基流动）：enable_thinking = false，另以 chat_template_kwargs 兼容其他 Qwen 网关
  * - MiniMax：thinking.type = 'disabled'
  * 因此按供应商分发各自的参数，未识别的供应商不传任何厂商私有字段。
  */
@@ -52,7 +52,12 @@ export function buildThinkingRequestOptions(provider: ModelProvider): Record<str
         reasoning_split: true,
       };
     case 'qwen':
-      return { chat_template_kwargs: { enable_thinking: false } };
+      return {
+        // 硅基流动的 OpenAI 兼容接口使用顶层 enable_thinking
+        enable_thinking: false,
+        // vLLM 等 Qwen 网关通常从 chat template kwargs 读取同一开关
+        chat_template_kwargs: { enable_thinking: false },
+      };
     default:
       return {};
   }
@@ -60,8 +65,8 @@ export function buildThinkingRequestOptions(provider: ModelProvider): Record<str
 
 /**
  * 供应商对应的提示词软开关后缀
- * 仅 Qwen3 识别 _nothink，其他模型加上只会污染提示词内容
+ * 仅 Qwen3 识别 /no_think，其他模型加上只会污染提示词内容
  */
 export function getNoThinkPromptSuffix(provider: ModelProvider): string {
-  return provider === 'qwen' ? '_nothink' : '';
+  return provider === 'qwen' ? '\n/no_think' : '';
 }
