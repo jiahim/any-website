@@ -62,9 +62,7 @@ export default function StreamRenderer({ path }: StreamRendererProps) {
     <>
       {/* 设计阶段界面 */}
       {renderStage === "designing" && isLoading && (
-        <div className="px-4 py-8">
-          <DesignStageIndicator currentStepIndex={currentStepIndex} />
-        </div>
+        <DesignStageIndicator currentStepIndex={currentStepIndex} path={path} />
       )}
 
       {/* iframe 渲染容器 — 无间距，贴边显示 */}

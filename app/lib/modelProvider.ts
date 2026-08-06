@@ -1,49 +1,30 @@
 /**
- * 模型供应商识别与"关闭思考"参数隔离
+ * 不同模型协议的"关闭思考"参数隔离
  *
  * 不同供应商关闭思考模式的方式完全不同，混着传会失效甚至被网关拒绝：
  * - Qwen3（硅基流动）：enable_thinking = false，另以 chat_template_kwargs 兼容其他 Qwen 网关
+ * - DeepSeek / 智谱：thinking.type = 'disabled'
+ * - Kimi K3：无法完全关闭思考，使用最低 reasoning_effort
  * - MiniMax：thinking.type = 'disabled'
- * 因此按供应商分发各自的参数，未识别的供应商不传任何厂商私有字段。
+ * - NVIDIA NIM：通过 chat_template_kwargs 关闭思考
+ * 因此按模型协议分发各自的参数，标准协议不传任何厂商私有字段。
  */
 
-export type ModelProvider = 'minimax' | 'qwen' | 'unknown';
+export type ModelProtocol =
+  | 'chat-template'
+  | 'kimi'
+  | 'minimax'
+  | 'qwen'
+  | 'standard'
+  | 'thinking-toggle';
 
-interface ResolveOptions {
-  /** API 端点，模型名不含厂商标识时作为补充判据 */
-  endpoint?: string;
-  /** 环境变量 MODEL_PROVIDER，显式指定时优先级最高 */
-  override?: string;
-}
-
-function normalizeProvider(value: string | undefined): ModelProvider | null {
-  switch (value?.trim().toLowerCase()) {
-    case 'minimax':
-      return 'minimax';
-    case 'qwen':
-      return 'qwen';
-    case 'unknown':
-      return 'unknown';
-    default:
-      return null;
-  }
-}
-
-export function resolveModelProvider(model: string, options: ResolveOptions = {}): ModelProvider {
-  const override = normalizeProvider(options.override);
-  if (override) return override;
-
-  const haystack = `${model} ${options.endpoint ?? ''}`.toLowerCase();
-  if (haystack.includes('minimax')) return 'minimax';
-  if (haystack.includes('qwen')) return 'qwen';
-  return 'unknown';
-}
+export type TokenLimitParameter = 'max_completion_tokens' | 'max_tokens';
 
 /**
  * 供应商对应的关闭思考请求参数，展开到 chat/completions 请求体顶层
  */
-export function buildThinkingRequestOptions(provider: ModelProvider): Record<string, unknown> {
-  switch (provider) {
+export function buildThinkingRequestOptions(protocol: ModelProtocol): Record<string, unknown> {
+  switch (protocol) {
     case 'minimax':
       return {
         thinking: { type: 'disabled' },
@@ -58,15 +39,39 @@ export function buildThinkingRequestOptions(provider: ModelProvider): Record<str
         // vLLM 等 Qwen 网关通常从 chat template kwargs 读取同一开关
         chat_template_kwargs: { enable_thinking: false },
       };
+    case 'thinking-toggle':
+      return {
+        thinking: { type: 'disabled' },
+      };
+    case 'kimi':
+      return {
+        // Kimi K3 始终启用思考，只能把推理强度调到最低
+        reasoning_effort: 'low',
+      };
+    case 'chat-template':
+      return {
+        chat_template_kwargs: { enable_thinking: false },
+      };
     default:
       return {};
   }
 }
 
 /**
+ * 新版 OpenAI 兼容接口逐步改用 max_completion_tokens；在配置中显式声明，
+ * 避免向只接受其中一个字段的 Provider 同时发送两个参数。
+ */
+export function buildTokenLimitRequestOptions(
+  parameter: TokenLimitParameter,
+  value: number,
+): Partial<Record<TokenLimitParameter, number>> {
+  return { [parameter]: value };
+}
+
+/**
  * 供应商对应的提示词软开关后缀
  * 仅 Qwen3 识别 /no_think，其他模型加上只会污染提示词内容
  */
-export function getNoThinkPromptSuffix(provider: ModelProvider): string {
-  return provider === 'qwen' ? '\n/no_think' : '';
+export function getNoThinkPromptSuffix(protocol: ModelProtocol): string {
+  return protocol === 'qwen' ? '\n/no_think' : '';
 }

@@ -122,7 +122,7 @@ export default function Home() {
     e.preventDefault();
     if (searchPath.trim()) {
       const cleanPath = searchPath.trim().startsWith('/') ? searchPath.trim().slice(1) : searchPath.trim();
-      window.open(`/${cleanPath}`, '_blank');
+      window.open(`/${cleanPath}`, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -209,16 +209,18 @@ export default function Home() {
                   }`}
                 >
                   <div className="overflow-hidden border border-black/10 bg-white p-1.5 shadow-[0_18px_50px_rgba(28,25,23,0.18)]">
-                    <Image
-                      src={CONTACT_QR_URL}
-                      alt="JiaHim（科技版）的小红书二维码，小红书号 sam12138"
-                      width={987}
-                      height={1347}
-                      sizes="(max-width: 640px) calc(100vw - 2.5rem), 17rem"
-                      className="mx-auto block h-auto max-h-[calc(100dvh-5rem)] w-auto max-w-full object-contain"
-                      draggable={false}
-                      unoptimized
-                    />
+                    {isContactOpen && (
+                      <Image
+                        src={CONTACT_QR_URL}
+                        alt="JiaHim（科技版）的小红书二维码，小红书号 sam12138"
+                        width={987}
+                        height={1347}
+                        sizes="(max-width: 640px) calc(100vw - 2.5rem), 17rem"
+                        className="mx-auto block h-auto max-h-[calc(100dvh-5rem)] w-auto max-w-full object-contain"
+                        draggable={false}
+                        unoptimized
+                      />
+                    )}
                   </div>
                 </div>
               </div>
