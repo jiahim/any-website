@@ -1,6 +1,7 @@
 "use client";
+import Image from "next/image";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { sanitizeRandomWordHistory } from "@/app/lib/randomWord";
 
 // 本地存储键名
@@ -34,6 +35,11 @@ export default function Home() {
   const [randomWordsHistory, setRandomWordsHistory] = useState<string[]>([]);
   const [trendingSearches, setTrendingSearches] = useState<TrendingSearchItem[]>([]);
   const [isLoadingTrending, setIsLoadingTrending] = useState(false);
+  const [isContactPinned, setIsContactPinned] = useState(false);
+  const [isContactHovered, setIsContactHovered] = useState(false);
+  const [isContactFocused, setIsContactFocused] = useState(false);
+  const contactRef = useRef<HTMLDivElement>(null);
+  const isContactOpen = isContactPinned || isContactHovered || isContactFocused;
 
   // 从本地存储加载历史记录
   useEffect(() => {
@@ -72,6 +78,32 @@ export default function Home() {
 
   useEffect(() => {
     fetchTrendingSearches();
+  }, []);
+
+  // 点击浮层外部或按 Escape 时关闭已固定的二维码浮层
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!contactRef.current?.contains(event.target as Node)) {
+        setIsContactPinned(false);
+        setIsContactFocused(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsContactPinned(false);
+        setIsContactHovered(false);
+        setIsContactFocused(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   // 保存词汇到本地存储
@@ -126,14 +158,78 @@ export default function Home() {
           <span className="text-[15px] font-bold tracking-tight text-[#1c1917]">
             网站任意门
           </span>
-          <a
-            href="https://github.com/xiexin12138/any-website"
-            className="text-[13px] text-[#a8a29e] hover:text-[#1c1917] transition-colors duration-300"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub &rarr;
-          </a>
+          <div className="flex h-full items-center gap-4 sm:gap-6">
+            <div
+              ref={contactRef}
+              className="relative flex h-full items-center"
+              onPointerEnter={(event) => {
+                if (event.pointerType !== "touch") setIsContactHovered(true);
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== "touch") setIsContactHovered(false);
+              }}
+              onFocusCapture={() => setIsContactFocused(true)}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  setIsContactFocused(false);
+                }
+              }}
+            >
+              <button
+                type="button"
+                aria-expanded={isContactOpen}
+                aria-controls="contact-qr-popover"
+                aria-haspopup="dialog"
+                aria-label="查看 JiaHim 的小红书二维码"
+                onClick={() => {
+                  setIsContactPinned((isPinned) => {
+                    if (isPinned) setIsContactFocused(false);
+                    return !isPinned;
+                  });
+                }}
+                className={`inline-flex h-full items-center gap-1.5 text-[13px] transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f2b]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#faf6f0] ${
+                  isContactOpen ? "text-[#1c1917]" : "text-[#a8a29e] hover:text-[#1c1917]"
+                }`}
+              >
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#d94f2b]" />
+                找到我
+              </button>
+
+              <div
+                id="contact-qr-popover"
+                role="dialog"
+                aria-label="JiaHim 的小红书二维码"
+                aria-hidden={!isContactOpen}
+                className={`absolute right-0 top-full z-50 w-[min(17rem,calc(100vw-2.5rem))] origin-top-right pt-2 transition-all duration-200 ${
+                  isContactOpen
+                    ? "pointer-events-auto translate-y-0 opacity-100"
+                    : "pointer-events-none -translate-y-1 opacity-0"
+                }`}
+              >
+                <div className="overflow-hidden border border-black/10 bg-white p-1.5 shadow-[0_18px_50px_rgba(28,25,23,0.18)]">
+                  <Image
+                    src="/jiahim-xiaohongshu-qr.jpg"
+                    alt="JiaHim（科技版）的小红书二维码，小红书号 sam12138"
+                    width={987}
+                    height={1347}
+                    sizes="(max-width: 640px) calc(100vw - 2.5rem), 17rem"
+                    className="mx-auto block h-auto max-h-[calc(100dvh-5rem)] w-auto max-w-full object-contain"
+                    draggable={false}
+                    unoptimized
+                  />
+                </div>
+              </div>
+            </div>
+
+            <a
+              href="https://github.com/xiexin12138/any-website"
+              className="text-[13px] text-[#a8a29e] hover:text-[#1c1917] transition-colors duration-300"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub &rarr;
+            </a>
+          </div>
         </div>
       </nav>
 

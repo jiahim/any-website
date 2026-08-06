@@ -25,7 +25,7 @@ export default function DraggableLoadingIndicator({
 }: DraggableLoadingIndicatorProps) {
   const { download, justDownloaded } = useHtmlDownload({ streamData, path });
   const [isDragging, setIsDragging] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [dockSide, setDockSide] = useState<DockSide>("right");
 
   const isDraggingRef = useRef(false);
