@@ -365,9 +365,50 @@ function buildDesignLayer(theme: Theme): string {
 
 // ---- 结构层：HTML 结构、链接、图片等功能性要求 ----
 
+function decodePathSafely(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
+}
+
+function buildSubpathLanguageGuide(path: string): {
+  guide: string;
+  exampleChildPath: string;
+} {
+  const pathSegments = decodePathSafely(path)
+    .split('/')
+    .map(segment => segment.trim())
+    .filter(Boolean);
+  const firstPathSegment = pathSegments[0] || '';
+  const currentPath = `/${pathSegments.join('/')}`;
+  const shouldUseChinese = /[\u3400-\u9fff\uf900-\ufaff]/.test(firstPathSegment);
+  const exampleChildPath = `${currentPath}/${shouldUseChinese ? '相关主题' : 'related-topic'}`;
+
+  if (shouldUseChinese) {
+    return {
+      exampleChildPath,
+      guide: `- 当前一级路径「${firstPathSegment}」是中文，所有在当前路径后新追加的二级及更深层路径段必须使用中文汉字命名
+- 必须保留当前完整路径前缀「${currentPath}」，正确示例：「${exampleChildPath}」
+- 禁止把新追加的路径段写成英文、拼音或英文 slug`,
+    };
+  }
+
+  return {
+    exampleChildPath,
+    guide: `- 当前一级路径「${firstPathSegment}」是英文，所有在当前路径后新追加的二级及更深层路径段必须使用英文命名
+- 必须保留当前完整路径前缀「${currentPath}」，推荐使用小写英文单词和连字符，正确示例：「${exampleChildPath}」
+- 禁止在新追加的路径段中使用中文`,
+  };
+}
+
 function buildStructureLayer(path: string, deviceType: string, browserInfo: string): string {
+  const decodedPath = decodePathSafely(path);
+  const { guide: subpathLanguageGuide, exampleChildPath } = buildSubpathLanguageGuide(path);
+
   return `<request_context>
-用户当前在使用 GET 方法，请求路径是 '${decodeURIComponent(path)}'
+用户当前在使用 GET 方法，请求路径是 '${decodedPath}'
 用户设备信息：${deviceType}，使用${browserInfo}
 当前时间：${new Date().toLocaleString()}
 </request_context>
@@ -390,6 +431,8 @@ function buildStructureLayer(path: string, deviceType: string, browserInfo: stri
 【超链接要求】
 - 至少 5 个超链接
 - 路径必须是本站 ${hostUrl} 当前路径的子路径绝对路径，不要使用相对路径
+- 子路径语言由用户最初输入的一级路径决定，不得根据页面主题自行翻译或切换语言：
+${subpathLanguageGuide}
 - 链接样式需与主题配色协调，不要使用默认的蓝色链接样式，而是融入整体设计
 
 【图片要求】
@@ -428,7 +471,7 @@ function buildStructureLayer(path: string, deviceType: string, browserInfo: stri
       页面标题
     </h1>
   </header>
-  <a href="/example" class="inline-block px-6 py-3 bg-[#2c1810] text-[#faf7f2] rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg">
+  <a href="${exampleChildPath}" class="inline-block px-6 py-3 bg-[#2c1810] text-[#faf7f2] rounded-lg transition-all duration-300 hover:scale-105 hover:shadow-lg">
     探索更多
   </a>
   <!-- ...更多内容... -->
