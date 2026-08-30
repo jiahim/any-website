@@ -9,6 +9,25 @@ const RANDOM_WORDS_KEY = "random_words_history";
 const MAX_WORDS = 100;
 const CONTACT_QR_URL = process.env.NEXT_PUBLIC_CONTACT_QR_URL?.trim();
 
+function ExternalLinkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      className="h-5 w-5 shrink-0 text-[#d6cfc5] transition-all duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-[#d94f2b]"
+    >
+      <path
+        d="M7 17 17 7M9 7h8v8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // 热门搜索项类型定义
 interface TrendingSearchItem {
   path: string;
@@ -31,6 +50,7 @@ const EXAMPLES = [
 ];
 
 export default function Home() {
+  const currentYear = new Date().getFullYear();
   const [searchPath, setSearchPath] = useState("");
   const [isLoadingRandom, setIsLoadingRandom] = useState(false);
   const [randomWordsHistory, setRandomWordsHistory] = useState<string[]>([]);
@@ -456,18 +476,60 @@ export default function Home() {
 
       {/* ===== 页脚 ===== */}
       <footer style={{ borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-        <div className="max-w-5xl mx-auto px-5 sm:px-8 py-8 sm:py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-[13px] text-[#a8a29e]">
-            &copy; 2025 网站任意门
-          </span>
-          <a
-            href="https://github.com/xiexin12138/any-website"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[13px] text-[#a8a29e] hover:text-[#1c1917] transition-colors duration-300"
-          >
-            GitHub &rarr;
-          </a>
+        <div className="max-w-5xl mx-auto px-5 sm:px-8">
+          <div className="py-10 sm:py-12">
+            <p className="mb-5 text-[11px] uppercase tracking-[0.15em] text-[#a8a29e]">
+              顺路看看
+            </p>
+            <nav aria-label="友情链接" className="grid gap-px overflow-hidden border border-[#e7e0d6] bg-[#e7e0d6] sm:grid-cols-2">
+              <a
+                href="https://www.jiahim.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center justify-between gap-5 bg-[#faf6f0] px-5 py-5 transition-colors duration-300 hover:bg-white sm:px-6 sm:py-6"
+              >
+                <span>
+                  <span className="block text-[11px] uppercase tracking-[0.12em] text-[#a8a29e]">
+                    我的主页
+                  </span>
+                  <span className="mt-1.5 block text-[15px] font-medium text-[#1c1917]">
+                    JiaHim 的数字自留地
+                  </span>
+                </span>
+                <ExternalLinkIcon />
+              </a>
+              <a
+                href="https://www.openai-api-chinese.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center justify-between gap-5 bg-[#faf6f0] px-5 py-5 transition-colors duration-300 hover:bg-white sm:px-6 sm:py-6"
+              >
+                <span>
+                  <span className="block text-[11px] uppercase tracking-[0.12em] text-[#a8a29e]">
+                    最近在做的事
+                  </span>
+                  <span className="mt-1.5 block text-[15px] font-medium text-[#1c1917]">
+                    自动化翻译之 OpenAI 的 API 篇
+                  </span>
+                </span>
+                <ExternalLinkIcon />
+              </a>
+            </nav>
+          </div>
+
+          <div className="flex flex-col items-center justify-between gap-4 border-t border-black/[0.06] py-8 sm:flex-row sm:py-10">
+            <span className="text-[13px] text-[#a8a29e]">
+              &copy; {currentYear} 网站任意门
+            </span>
+            <a
+              href="https://github.com/xiexin12138/any-website"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[13px] text-[#a8a29e] transition-colors duration-300 hover:text-[#1c1917]"
+            >
+              GitHub &rarr;
+            </a>
+          </div>
         </div>
       </footer>
     </div>
