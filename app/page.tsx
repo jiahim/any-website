@@ -491,7 +491,7 @@ export default function Home() {
             <p className="mb-5 text-[11px] uppercase tracking-[0.15em] text-[#a8a29e]">
               顺路看看
             </p>
-            <nav aria-label="友情链接" className="grid gap-px overflow-hidden border border-[#e7e0d6] bg-[#e7e0d6] sm:grid-cols-2">
+            <nav aria-label="友情链接" className="grid gap-px overflow-hidden border border-[#e7e0d6] bg-[#e7e0d6]">
               <a
                 href="https://www.jiahim.com"
                 target="_blank"
@@ -504,22 +504,6 @@ export default function Home() {
                   </span>
                   <span className="mt-1.5 block text-[15px] font-medium text-[#1c1917]">
                     JiaHim 的数字自留地
-                  </span>
-                </span>
-                <ExternalLinkIcon />
-              </a>
-              <a
-                href="https://www.openai-api-chinese.com/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center justify-between gap-5 bg-[#faf6f0] px-5 py-5 transition-colors duration-300 hover:bg-white sm:px-6 sm:py-6"
-              >
-                <span>
-                  <span className="block text-[11px] uppercase tracking-[0.12em] text-[#a8a29e]">
-                    最近在做的事
-                  </span>
-                  <span className="mt-1.5 block text-[15px] font-medium text-[#1c1917]">
-                    自动化翻译之 OpenAI 的 API 篇
                   </span>
                 </span>
                 <ExternalLinkIcon />
