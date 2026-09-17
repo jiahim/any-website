@@ -1,233 +1,94 @@
-import { useEffect, useRef, useState } from "react";
-import { DESIGN_STEPS } from "../constants/designSteps";
-
-interface StreamRequest {
-  path: string;
-  userAgent: string;
-}
-
-interface UseStreamDataReturn {
-  isLoading: boolean;
-  error: string | null;
-  streamData: string;
-  renderStage: "designing" | "coding" | "completed";
-  currentStepIndex: number;
-}
-
-export function useStreamData(path: string): UseStreamDataReturn {
+import { useCallback, useEffect, useState } from 'react';
+import { DESIGN_STEPS } from '../constants/designSteps';
+const CACHE_KEY = 'any-website:current-generation';
+const CACHE_MS = 30 * 60_000;
+export function useStreamData(path: string) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [streamData, setStreamData] = useState<string>("");
-  const [renderStage, setRenderStage] = useState<
-    "designing" | "coding" | "completed"
-  >("designing");
-  const abortControllerRef = useRef<AbortController | null>(null);
-
+  const [streamData, setStreamData] = useState('');
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [renderStage, setRenderStage] = useState<'designing' | 'coding' | 'completed'>('designing');
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-
-  // 设计阶段的动画效果
+  const [revision, setRevision] = useState(0);
+  const regenerate = useCallback(() => {
+    try { sessionStorage.removeItem(CACHE_KEY); } catch { /* optional cache */ }
+    setRevision(value => value + 1);
+  }, []);
   useEffect(() => {
-    if (renderStage === "designing" && isLoading) {
-      const interval = setInterval(() => {
-        setCurrentStepIndex((prev) => (prev + 1) % DESIGN_STEPS.length);
-      }, 2000); // 每2秒切换一个步骤
-
-      return () => clearInterval(interval);
-    }
+    if (renderStage !== 'designing' || !isLoading) return;
+    const timer = setInterval(() => setCurrentStepIndex(value => (value + 1) % DESIGN_STEPS.length), 2000);
+    return () => clearInterval(timer);
   }, [renderStage, isLoading]);
 
   useEffect(() => {
-    // 取消之前的请求
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // 立即同步重置状态，避免路由过渡期间旧数据残留导致重复浮标
-    setIsLoading(true);
-    setError(null);
-    setStreamData("");
-    setRenderStage("designing");
-    setCurrentStepIndex(0);
-
-    // 创建新的AbortController
     const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    let buffer = "";
-    let accumulatedContent = "";
-    let isAborted = false;
+    let active = true;
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
-    let lastFlushTime = 0;
-    // 节流间隔：控制 iframe doc.write() 频率，避免 Tailwind CDN 脚本反复重新执行阻塞渲染
-    const FLUSH_INTERVAL_MS = 300;
-
-    const flushStreamData = () => {
-      flushTimer = null;
-      lastFlushTime = Date.now();
-      setStreamData(accumulatedContent);
-    };
-
-    const scheduleFlush = () => {
-      if (flushTimer) return;
-      const elapsed = Date.now() - lastFlushTime;
-      if (elapsed >= FLUSH_INTERVAL_MS) {
-        flushStreamData();
-      } else {
-        flushTimer = setTimeout(flushStreamData, FLUSH_INTERVAL_MS - elapsed);
+    setIsLoading(true); setError(null); setStreamData(''); setGenerationId(null); setRenderStage('designing'); setCurrentStepIndex(0);
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null');
+      if (cached?.path === path && typeof cached.id === 'string' && /^[0-9a-f-]{36}$/i.test(cached.id) && typeof cached.html === 'string' && cached.html.length <= 1_000_000 && typeof cached.savedAt === 'number' && Date.now() >= cached.savedAt && Date.now() - cached.savedAt < CACHE_MS) {
+        setGenerationId(cached.id); setStreamData(cached.html); setRenderStage('completed'); setIsLoading(false);
+        return;
       }
-    };
+    } catch { /* corrupted/unavailable cache falls back to normal generation */ }
 
-    const processStream = async () => {
-      try {
-        const requestBody: StreamRequest = {
-          path,
-          userAgent: navigator.userAgent
-        };
-        
-        const response = await fetch("/api/stream", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(requestBody),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          
-          let errorMessage = `API请求失败: ${response.status}`;
-          try {
-            const errorData = JSON.parse(errorText);
-            if (errorData.message) {
-              errorMessage = errorData.message;
-            }
-          } catch {
-            if (errorText) {
-              errorMessage = errorText;
-            }
-          }
-
-          throw new Error(errorMessage);
-        }
-
-        if (!response.body) {
-          throw new Error("响应不支持流式读取");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-
-        while (true) {
-          const { done, value } = await reader.read();
-
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.trim() === "") continue;
-
-            if (line.startsWith("data: ")) {
-              const jsonStr = line.substring(6);
-
-              if (jsonStr.trim() === "[DONE]") {
-                continue;
-              }
-
-              try {
-                const data = JSON.parse(jsonStr);
-
-                if (data.choices && data.choices[0] && data.choices[0].delta) {
-                  const delta = data.choices[0].delta;
-
-                  if (delta.content) {
-                    accumulatedContent += delta.content;
-
-                    if (renderStage === "designing") {
-                      const hasHtmlTag = accumulatedContent.includes("<html");
-                      const hasHeadTag = accumulatedContent.includes("<head");
-                      const hasBodyTag = accumulatedContent.includes("<body");
-
-                      if (hasHtmlTag && hasHeadTag && hasBodyTag) {
-                        setRenderStage("coding");
-                      }
-                    }
-
-                    scheduleFlush();
-                  }
-                } else {
-                  accumulatedContent += JSON.stringify(data);
-                  scheduleFlush();
-                }
-              } catch (parseError) {
-                console.error(
-                  "JSON解析错误:",
-                  parseError,
-                  "原始数据:",
-                  jsonStr
-                );
-                accumulatedContent += jsonStr;
-                scheduleFlush();
-              }
-            } else {
-              accumulatedContent += line;
-              scheduleFlush();
-            }
-          }
-        }
-
-        if (!isAborted) {
-          // 流结束时立即刷新最终内容
-          if (flushTimer) {
-            clearTimeout(flushTimer);
-            flushTimer = null;
-          }
-          setStreamData(accumulatedContent);
-          setRenderStage("completed");
-          setIsLoading(false);
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") {
+    const run = async () => {
+      let content = '', buffer = '', id: string | null = null;
+      let completed = false;
+      const processLine = (line: string) => {
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload) return;
+        if (payload === '[DONE]') { completed = true; return; }
+        const data = JSON.parse(payload);
+        if (data.error) throw new Error('页面生成中断，请重试');
+        if (data.generation) {
+          id = typeof data.generation.id === 'string' ? data.generation.id : null;
           return;
         }
-
-        setError(err instanceof Error ? err.message : "未知错误");
-        setIsLoading(false);
+        const delta = data.choices?.[0]?.delta?.content;
+        if (typeof delta !== 'string') return;
+        content += delta;
+        if (/<body[\s>]/i.test(content)) setRenderStage('coding');
+        if (!flushTimer) flushTimer = setTimeout(() => { flushTimer = null; if (active) setStreamData(content); }, 300);
+      };
+      try {
+        const response = await fetch('/api/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, userAgent: navigator.userAgent }), signal: controller.signal });
+        if (!response.ok) {
+          const text = await response.text();
+          let message = text || `API请求失败: ${response.status}`;
+          try { message = JSON.parse(text).message || message; } catch { /* text error */ }
+          throw new Error(message);
+        }
+        if (!response.body) throw new Error('响应不支持流式读取');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (active) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n'); buffer = lines.pop() || '';
+          lines.forEach(processLine);
+        }
+        buffer += decoder.decode();
+        if (buffer.trim()) processLine(buffer);
+        if (!active) return;
+        if (!completed || !content.trim()) throw new Error('页面生成未完成，请重新尝试');
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        setStreamData(content); setGenerationId(id); setRenderStage('completed'); setIsLoading(false);
+        if (id && content.length <= 1_000_000) {
+          try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ path, id, html: content, savedAt: Date.now() })); } catch { /* storage limits do not affect rendering */ }
+        }
+      } catch (err) {
+        if (!active) return;
+        controller.abort();
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+        setError(err instanceof Error ? err.message : '未知错误'); setIsLoading(false);
       }
     };
-
-    // 添加一个小延迟来避免快速导航时的重复请求
-    const timeoutId = setTimeout(() => {
-      processStream();
-    }, 100);
-
-    return () => {
-      clearTimeout(timeoutId);
-      if (flushTimer) clearTimeout(flushTimer);
-      isAborted = true;
-      controller.abort();
-    };
-  }, [path]);
-
-  // 组件卸载时的清理
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-    };
-  }, []);
-
-  return {
-    isLoading,
-    error,
-    streamData,
-    renderStage,
-    currentStepIndex,
-  };
-} 
+    const timer = setTimeout(() => void run(), 100);
+    return () => { active = false; clearTimeout(timer); if (flushTimer) clearTimeout(flushTimer); controller.abort(); };
+  }, [path, revision]);
+  return { isLoading, error, streamData, generationId, renderStage, currentStepIndex, regenerate };
+}

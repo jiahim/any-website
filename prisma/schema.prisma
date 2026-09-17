@@ -32,7 +32,7 @@ model TrendingSearch {
 
 // 用户搜索记录模型（用于去重）
 // - 用途 ：记录用户每日搜索，防止重复计数
-// - 特点 ：临时数据，定期清理
+// - 特点 ：保留历史去重事件供时间衰减排名使用
 model UserSearchLog {
   id        String   @id @default(cuid())
   path      String
@@ -41,6 +41,7 @@ model UserSearchLog {
   createdAt DateTime @default(now())
 
   @@unique([path, userHash, date])
+  @@index([createdAt, path, userHash])
   @@map("user_search_logs")
 }
 
@@ -72,4 +73,34 @@ model DownloadRecord {
   @@index([path])
   @@index([createdAt])
   @@map("download_records")
+}
+
+// 服务端确认完整输出的生成实例；不保存 HTML。
+model GeneratedPage {
+  id          String @id @db.Uuid
+  path        String
+  visitorHash String
+  createdAt   DateTime @default(now())
+  feedback    PageFeedback?
+
+  @@index([createdAt])
+  @@index([path, visitorHash])
+  @@map("generated_pages")
+}
+
+model PageFeedback {
+  generationId String @id @db.Uuid
+  value        Int
+  updatedAt    DateTime @updatedAt
+  generation   GeneratedPage @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@map("page_feedback")
+}
+
+model HotSearchSnapshot {
+  source    String @id
+  items     Json
+  fetchedAt DateTime
+
+  @@map("hot_search_snapshots")
 }

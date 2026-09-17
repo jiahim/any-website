@@ -1,208 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { prisma } from '@/app/lib/prisma';
-import crypto from 'crypto';
 import { isValidSearchPath } from '@/app/lib/pathFilter';
+import { normalizeSearchPath, rankSearches, selectSuggestions, type Suggestion } from '@/app/lib/discovery';
+import { getHotSearches } from '@/app/lib/hotSearches';
+import { isSameOrigin } from '@/app/lib/visitor';
 
-// 生成用户标识哈希
-const generateUserHash = (ip: string | null, userAgent: string | null): string => {
-  const identifier = `${ip || 'unknown'}-${userAgent || 'unknown'}`;
-  return crypto.createHash('sha256').update(identifier).digest('hex');
-};
-
-// 获取今天的日期字符串
-const getTodayString = (): string => {
-  return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-};
-
-
-
-// 获取热门搜索数据
-const getTrendingSearches = async (limit: number, category?: string) => {
-  const where = {
-    isDeleted: false, // 过滤被软删除的内容
-    count: {
-      gt: 1
-    },
-    ...(category && category !== 'all' ? { category } : {})
-  };
-
-  return await prisma.trendingSearch.findMany({
-    where,
-    orderBy: [
-      { count: 'desc' },
-      { updatedAt: 'desc' }
-    ],
-    take: limit,
-    select: {
-      path: true,
-      category: true,
-      count: true,
-      updatedAt: true
-    }
-  });
-};
-
+async function getLocalSearches(category?: string): Promise<{ items: Suggestion[]; blocked: string[] }> {
+  if (!process.env.POSTGRES_PRISMA_URL) return { items: [], blocked: [] };
+  const now = new Date();
+  const [activity, denied, feedback] = await Promise.all([
+    prisma.userSearchLog.groupBy({ by: ['path', 'userHash'], where: { createdAt: { lte: now } }, _max: { createdAt: true } }),
+    prisma.trendingSearch.findMany({ where: { isDeleted: true }, select: { path: true } }),
+    prisma.pageFeedback.findMany({ where: { value: { not: 0 }, generation: { createdAt: { lte: now } } }, include: { generation: true } }).catch(() => []),
+  ]);
+  let result = rankSearches(
+    activity.flatMap(row => row._max.createdAt ? [{ path: row.path, userHash: row.userHash, createdAt: row._max.createdAt }] : []),
+    feedback.map(row => ({ path: row.generation.path, visitorHash: row.generation.visitorHash, value: row.value, createdAt: row.generation.createdAt })),
+    denied.map(row => row.path),
+  ).filter(row => isValidSearchPath(row.path));
+  if (category && category !== 'all') {
+    const matches = await prisma.trendingSearch.findMany({ where: { category, isDeleted: false }, select: { path: true } });
+    const paths = new Set(matches.map(row => normalizeSearchPath(row.path)));
+    result = result.filter(row => paths.has(row.path));
+  }
+  return { items: result, blocked: denied.map(row => row.path) };
+}
 export async function GET(request: NextRequest) {
+  const raw = Number(request.nextUrl.searchParams.get('limit') ?? 12);
+  const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, 20) : 12;
+  const category = request.nextUrl.searchParams.get('category') || undefined;
+  const source = request.nextUrl.searchParams.get('source') || 'website';
+  if (source !== 'website' && source !== 'social') {
+    return NextResponse.json({ success: false, message: '无效热词来源' }, { status: 400 });
+  }
   try {
-    const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const category = searchParams.get('category') || undefined;
-
-    const trendingSearches = await getTrendingSearches(Math.min(limit, 20), category);
-
-    return new NextResponse(
-      JSON.stringify({
-        success: true,
-        data: trendingSearches,
-        total: trendingSearches.length,
-        timestamp: new Date().toISOString()
-      }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=300' // 缓存5分钟
-        }
-      }
-    );
-
-  } catch (error) {
-    console.error('获取热门搜索数据错误:', error);
-    return new NextResponse(
-      JSON.stringify({
-        success: false,
-        error: '服务器内部错误',
-        message: '获取热门搜索数据失败'
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    const items = source === 'website'
+      ? (await getLocalSearches(category)).items
+      : (await getHotSearches()).filter(item => isValidSearchPath(item.path));
+    const data = selectSuggestions(items, limit).map(item => ({ path: item.path, source: item.source, ...(item.fetchedAt ? { fetchedAt: item.fetchedAt } : {}) }));
+    return NextResponse.json({ success: true, source, data, total: data.length, timestamp: new Date().toISOString() }, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
+  } catch {
+    return NextResponse.json({ success: false, source, data: [], message: '热词暂时无法加载' }, {
+      status: 503, headers: { 'Cache-Control': 'no-store' },
+    });
   }
 }
 
-// 添加POST方法来记录新的搜索
 export async function POST(request: NextRequest) {
+  if (!isSameOrigin(request)) return NextResponse.json({ success: false }, { status: 403 });
+  let body;
+  try { body = await request.json(); } catch { return NextResponse.json({ success: false }, { status: 400 }); }
+  const path = normalizeSearchPath(body?.path);
+  if (!path || !isValidSearchPath(path)) return NextResponse.json({ success: false, message: '无效搜索路径' }, { status: 400 });
+  const category = typeof body.category === 'string' && body.category.length <= 30 ? body.category : '用户搜索';
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || request.headers.get('x-real-ip');
+  const userAgent = request.headers.get('user-agent');
+  const userHash = createHash('sha256').update(`${ip || 'unknown'}-${userAgent || 'unknown'}`).digest('hex');
+  const date = new Date().toISOString().slice(0,10);
   try {
-    const body = await request.json();
-    const { path, category } = body;
-
-    if (!path) {
-      return new NextResponse(
-        JSON.stringify({
-          success: false,
-          error: '参数错误',
-          message: '缺少必要的路径参数'
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-    }
-
-    // 路径合法性校验：过滤爬虫产生的无效路径
-    if (!isValidSearchPath(path)) {
-      console.warn(`[bot-filter][trending] 非法路径被跳过: path=${path}`);
-      return new NextResponse(
-        JSON.stringify({
-          success: true,
-          message: '路径不符合记录条件（已跳过）'
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-    }
-
-    const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip');
-    const userAgent = request.headers.get('user-agent');
-    const userHash = generateUserHash(ip, userAgent);
-    const today = getTodayString();
-
-    // 检查用户今天是否已经搜索过这个路径
-    const existingLog = await prisma.userSearchLog.findUnique({
-      where: {
-        path_userHash_date: {
-          path,
-          userHash,
-          date: today
-        }
-      }
+    // Unique constraint + one transaction: concurrent duplicate requests never split the counters/logs.
+    await prisma.$transaction(async tx => {
+      await tx.userSearchLog.create({ data: { path, userHash, date } });
+      await tx.searchRecord.create({ data: { path, category, ip, userAgent } });
+      await tx.trendingSearch.upsert({ where: { path }, create: { path, category, count: 1 }, update: { count: { increment: 1 }, category } });
     });
-
-    // 如果用户今天已经搜索过这个路径，则不重复记录
-    if (existingLog) {
-      return new NextResponse(
-        JSON.stringify({
-          success: true,
-          message: '搜索记录已存在（今日已记录）'
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-    }
-
-    // 记录用户搜索日志（用于去重）
-    await prisma.userSearchLog.create({
-      data: {
-        path,
-        userHash,
-        date: today
-      }
-    });
-
-    // 记录搜索到数据库
-    await prisma.searchRecord.create({
-      data: {
-        path,
-        category: category || '未分类',
-        userAgent,
-        ip
-      }
-    });
-
-    // 更新或创建热门搜索记录
-    await prisma.trendingSearch.upsert({
-      where: { path },
-      update: {
-        count: { increment: 1 },
-        category: category || '用户搜索'
-      },
-      create: {
-        path,
-        category: category || '用户搜索',
-        count: 1
-      }
-    });
-
-    return new NextResponse(
-      JSON.stringify({
-        success: true,
-        message: '搜索记录已保存'
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
-
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('记录搜索数据错误:', error);
-    return new NextResponse(
-      JSON.stringify({
-        success: false,
-        error: '服务器内部错误',
-        message: '记录搜索数据失败'
-      }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') return NextResponse.json({ success: true, message: '今日已记录' });
+    return NextResponse.json({ success: false, message: '搜索记录暂时无法保存' }, { status: 503 });
   }
 }

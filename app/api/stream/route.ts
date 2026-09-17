@@ -1,3 +1,7 @@
+import { prisma } from '@/app/lib/prisma';
+import { createGenerationTransform } from '@/app/lib/generationStream';
+import { attachVisitor, getVisitor } from '@/app/lib/visitor';
+import { normalizeSearchPath } from '@/app/lib/discovery';
 import { NextRequest, NextResponse } from 'next/server';
 import { isBot } from '@/app/lib/botDetection';
 import { isValidSearchPath } from '@/app/lib/pathFilter';
@@ -230,18 +234,27 @@ export async function POST(request: NextRequest) {
     }
 
     // 流式转发响应，并剥离推理模型混在 content 中的 <think> 思考内容
+    const visitor = getVisitor(request);
+    const generationId = crypto.randomUUID();
     const responseStream = response.body
       .pipeThrough(createThinkFilterTransform())
-      .pipeThrough(createStreamMetricsTransform(logPrefix, requestStartedAt));
+      .pipeThrough(createStreamMetricsTransform(logPrefix, requestStartedAt))
+      .pipeThrough(createGenerationTransform(async () => {
+        const normalizedPath = normalizeSearchPath(path);
+        if (!normalizedPath) return null;
+        await prisma.generatedPage.create({ data: { id: generationId, path: normalizedPath, visitorHash: visitor.hash } });
+        return generationId;
+      }));
 
-    return new NextResponse(responseStream, {
+    const outgoing = new NextResponse(responseStream, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-store',
         'Connection': 'keep-alive',
         'X-Request-Id': requestId,
       },
     });
+    return visitor.exists ? outgoing : attachVisitor(outgoing, visitor.id);
   } catch (error) {
     if (error instanceof ModelProviderConfigError) {
       console.error(`${logPrefix} 模型 Provider 配置错误`, { message: error.message });
