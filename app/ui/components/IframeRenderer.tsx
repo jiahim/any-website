@@ -73,7 +73,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; p
     return content;
   }, [streamData, error]);
 
-  // 拦截 iframe 内链接点击，在父窗口导航而非 iframe 内部导航
+  // 拦截 iframe 内链接点击，在新标签页打开并保留当前生成页
   const handleLinkClick = useCallback((e: MouseEvent) => {
     const anchor = (e.target as HTMLElement).closest?.('a');
     if (!anchor) return;
@@ -88,7 +88,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; p
     e.stopPropagation();
 
     onNavigate?.(href);
-    window.location.href = href;
+    window.open(href, '_blank', 'noopener,noreferrer');
   }, [onNavigate]);
 
   // 通过 document.write 写入 iframe 内容，并从父侧监听高度变化

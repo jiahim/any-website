@@ -5,7 +5,8 @@ import { createThinkStripper } from './thinkFilter';
  *
  * 即使已按供应商关闭思考模式（见 modelProvider.ts），仍保留这层兜底：部分模型（如 MiniMax M2.x）
  * 无法关闭思考。逐行解析 OpenAI 兼容格式的 SSE，把 delta.content 里的 <think>...</think> 剥离，
- * 同时丢弃独立的 reasoning_content / reasoning_details 字段，再按原格式重新输出，客户端无需改动。
+ * 同时丢弃顶层 model 以及独立的 reasoning_content / reasoning_details 字段，
+ * 再按原格式重新输出，客户端无需改动。
  * 无法解析的行（心跳、注释、[DONE] 等）原样透传。
  */
 export function createThinkFilterTransform(): TransformStream<Uint8Array, Uint8Array> {
@@ -23,6 +24,7 @@ export function createThinkFilterTransform(): TransformStream<Uint8Array, Uint8A
     if (payload === '' || payload === '[DONE]') return rawLine;
 
     let data: {
+      model?: unknown;
       choices?: {
         delta?: { content?: unknown; reasoning_content?: unknown; reasoning_details?: unknown };
         finish_reason?: unknown;
@@ -34,6 +36,9 @@ export function createThinkFilterTransform(): TransformStream<Uint8Array, Uint8A
     } catch {
       return rawLine;
     }
+
+    // 上游模型标识属于服务端配置，不向前端暴露
+    if (data.model !== undefined) delete data.model;
 
     const choices = Array.isArray(data.choices) ? data.choices : [];
     let hadContent = false;

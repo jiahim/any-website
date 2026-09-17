@@ -5,17 +5,14 @@ import {
   sanitizeRandomWordHistory,
 } from '@/app/lib/randomWord';
 import {
+  ModelProviderConfigError,
+  resolveModelProviderConfig,
+} from '@/app/config/modelProviders';
+import {
   buildThinkingRequestOptions,
+  buildTokenLimitRequestOptions,
   getNoThinkPromptSuffix,
-  resolveModelProvider,
 } from '@/app/lib/modelProvider';
-
-// 从环境变量获取配置
-const apiEndpoint = process.env.SILICON_FLOW_API_ENDPOINT;
-const apiKey = process.env.SILICON_FLOW_API_KEY;
-const model = process.env.SILICON_FLOW_FREE_MODEL;
-// 可选：显式指定模型供应商（minimax / qwen / unknown），留空时按模型名与端点自动识别
-const providerOverride = process.env.MODEL_PROVIDER;
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,52 +39,7 @@ export async function POST(request: NextRequest) {
 
     const safeHistory = sanitizeRandomWordHistory(history);
 
-    // 验证必要的环境变量
-    if (!apiEndpoint) {
-      console.error('缺少环境变量: SILICON_FLOW_API_ENDPOINT');
-      return new NextResponse(
-        JSON.stringify({
-          error: '配置错误',
-          message: '缺少API端点配置，请检查环境变量 SILICON_FLOW_API_ENDPOINT'
-        }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-    }
-    if (!apiKey) {
-      console.error('缺少环境变量: SILICON_FLOW_API_KEY');
-      return new NextResponse(
-        JSON.stringify({
-          error: '配置错误',
-          message: '缺少API密钥配置，请检查环境变量 SILICON_FLOW_API_KEY'
-        }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-    }
-    if (!model) {
-      console.error('缺少环境变量: SILICON_FLOW_MODEL');
-      return new NextResponse(
-        JSON.stringify({
-          error: '配置错误',
-          message: '缺少模型配置，请检查环境变量 SILICON_FLOW_MODEL'
-        }),
-        {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
-    }
-
-    // 识别供应商，决定用哪套关闭思考的方案
-    const provider = resolveModelProvider(model, {
-      endpoint: apiEndpoint,
-      override: providerOverride,
-    });
+    const provider = resolveModelProviderConfig('free');
 
     const systemPrompt = [
       '你是一个随机中文词汇生成器。',
@@ -100,7 +52,7 @@ export async function POST(request: NextRequest) {
       : '目前没有已探索词汇。';
 
     console.log('🚀 ~ light-me ~ request:', {
-      provider,
+      provider: provider.id,
       historyCount: safeHistory.length,
     });
 
@@ -111,31 +63,31 @@ export async function POST(request: NextRequest) {
       const correction = attempt === 1
         ? '上一次输出不符合格式。重新选择，只能输出一个中文词语。'
         : '';
-      const prompt = `${historyText}${correction}${getNoThinkPromptSuffix(provider)}`;
+      const prompt = `${historyText}${correction}${getNoThinkPromptSuffix(provider.model.protocol)}`;
 
-      const response = await fetch(apiEndpoint, {
+      const response = await fetch(provider.baseUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${provider.apiKey}`,
         },
         body: JSON.stringify({
-          model,
+          model: provider.model.id,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt },
           ],
-          max_tokens: 32,
+          ...buildTokenLimitRequestOptions(provider.model.tokenLimitParameter, 32),
           temperature: 0.8,
           top_p: 0.8,
           top_k: 20,
-          ...buildThinkingRequestOptions(provider),
+          ...buildThinkingRequestOptions(provider.model.protocol),
         }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('硅基流动API错误:', response.status, errorText);
+        console.error(`${provider.name} API错误:`, response.status, errorText);
         return new NextResponse(`API请求失败: ${response.status}`, { status: response.status });
       }
 
@@ -170,6 +122,14 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error) {
+    if (error instanceof ModelProviderConfigError) {
+      console.error('模型 Provider 配置错误:', error.message);
+      return NextResponse.json(
+        { error: '配置错误', message: error.message },
+        { status: 500 },
+      );
+    }
+
     console.error('light-me API错误:', error);
     return new NextResponse(
       JSON.stringify({

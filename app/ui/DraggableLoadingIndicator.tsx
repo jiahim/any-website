@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePageFeedback } from "./hooks/usePageFeedback";
 import { useHtmlDownload } from "./hooks/useHtmlDownload";
 
 interface DraggableLoadingIndicatorProps {
@@ -8,6 +9,8 @@ interface DraggableLoadingIndicatorProps {
   streamData: string;
   renderStage: "designing" | "coding" | "completed";
   path: string;
+  generationId: string | null;
+  onRegenerate: () => void;
 }
 
 type DockSide = "left" | "right";
@@ -22,10 +25,13 @@ export default function DraggableLoadingIndicator({
   streamData,
   renderStage,
   path,
+  generationId,
+  onRegenerate,
 }: DraggableLoadingIndicatorProps) {
+  const feedback = usePageFeedback(generationId);
   const { download, justDownloaded } = useHtmlDownload({ streamData, path });
   const [isDragging, setIsDragging] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [dockSide, setDockSide] = useState<DockSide>("right");
 
   const isDraggingRef = useRef(false);
@@ -142,7 +148,9 @@ export default function DraggableLoadingIndicator({
 
     keepInViewport();
     window.addEventListener("resize", keepInViewport);
-    return () => window.removeEventListener("resize", keepInViewport);
+    const observer = new ResizeObserver(keepInViewport);
+    if (indicatorRef.current) observer.observe(indicatorRef.current);
+    return () => { window.removeEventListener("resize", keepInViewport); observer.disconnect(); };
   }, [applyPosition, clampPosition, dockSide, isCollapsed, moveToDock]);
 
   // Escape 是桌面端的快速收起方式。
@@ -265,29 +273,29 @@ export default function DraggableLoadingIndicator({
 
   const stageStyles = {
     designing: {
-      panel: "bg-blue-50/95 border-blue-300",
-      text: "text-blue-700",
-      ringTrack: "border-blue-300",
-      ringActive: "border-t-blue-600",
-      orb: "from-blue-500 to-indigo-600 shadow-blue-500/30",
+      panel: "bg-[#faf6f0]/95 border-[#d6cfc5]",
+      text: "text-[#d94f2b]",
+      ringTrack: "border-[#d6cfc5]",
+      ringActive: "border-t-[#d94f2b]",
+      orb: "from-[#1c1917] to-[#44403c] shadow-[#1c1917]/25",
       title: "设计阶段 (1/2)",
       subtitle: "构思页面布局",
     },
     coding: {
-      panel: "bg-green-50/95 border-green-300",
-      text: "text-green-700",
-      ringTrack: "border-green-300",
-      ringActive: "border-t-green-600",
-      orb: "from-emerald-500 to-green-600 shadow-green-500/30",
+      panel: "bg-[#faf6f0]/95 border-[#d6cfc5]",
+      text: "text-[#1c1917]",
+      ringTrack: "border-[#d6cfc5]",
+      ringActive: "border-t-[#d94f2b]",
+      orb: "from-[#d94f2b] to-[#b63821] shadow-[#d94f2b]/25",
       title: "编码阶段 (2/2)",
       subtitle: "编写 HTML 代码",
     },
     completed: {
-      panel: "bg-white/95 border-orange-200",
-      text: "text-gray-800",
-      ringTrack: "border-orange-200",
-      ringActive: "border-t-orange-500",
-      orb: "from-orange-500 to-amber-500 shadow-orange-500/30",
+      panel: "bg-[#faf6f0]/95 border-[#d6cfc5]",
+      text: "text-[#1c1917]",
+      ringTrack: "border-[#d6cfc5]",
+      ringActive: "border-t-[#d94f2b]",
+      orb: "from-[#d94f2b] to-[#b63821] shadow-[#d94f2b]/25",
       title: "生成完成",
       subtitle: "HTML 文件已准备好",
     },
@@ -388,6 +396,29 @@ export default function DraggableLoadingIndicator({
                 </svg>
               </button>
             </div>
+
+            {!isLoading && renderStage === 'completed' && (
+              <div data-no-drag className="mt-3 border-t border-[#e7e0d6] pt-3">
+                <p className="mb-2 text-xs text-[#57534e]">这次生成的页面怎么样？</p>
+                <div className="flex gap-2">
+                  {([1, -1] as const).map(value => (
+                    <button key={value} type="button" data-no-drag
+                      aria-pressed={feedback.value === value}
+                      aria-label={value === 1 ? (feedback.value === 1 ? '取消点赞' : '点赞') : (feedback.value === -1 ? '取消点踩' : '点踩')}
+                      disabled={!generationId || !feedback.ready || feedback.pending}
+                      onClick={() => void feedback.vote(value)}
+                      className={`min-h-11 flex-1 rounded-xl border px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d94f2b] ${feedback.value === value ? 'border-[#d94f2b] bg-[#f5e3dc] text-[#b63821]' : 'border-[#d6cfc5] text-[#57534e] hover:bg-white/60'}`}>
+                      <span aria-hidden="true">{value === 1 ? '👍' : '👎'}</span> {value === 1 ? '点赞' : '点踩'}
+                    </button>
+                  ))}
+                </div>
+                <p role="status" className="mt-2 text-xs leading-relaxed text-[#57534e]">
+                  {!generationId ? '本次评价暂不可用，可重新生成后再试' : feedback.pending ? '正在保存…' : feedback.message || (feedback.ready ? '再点一次取消，点另一项切换' : '正在读取评价…')}
+                </p>
+                {generationId && !feedback.ready && feedback.message && <button type="button" data-no-drag onClick={() => void feedback.retry()} className="min-h-11 text-xs text-[#b63821] underline">重试读取评价</button>}
+                <button type="button" data-no-drag disabled={feedback.pending} onClick={onRegenerate} className="mt-1 min-h-11 text-xs text-[#57534e] underline underline-offset-4 disabled:opacity-50">重新生成一个页面</button>
+              </div>
+            )}
 
             <button
               type="button"

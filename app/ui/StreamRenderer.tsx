@@ -18,6 +18,8 @@ export default function StreamRenderer({ path }: StreamRendererProps) {
     streamData,
     renderStage,
     currentStepIndex,
+    generationId,
+    regenerate,
   } = useStreamData(path);
   
   const hasRecordedRef = useRef(false);
@@ -62,9 +64,7 @@ export default function StreamRenderer({ path }: StreamRendererProps) {
     <>
       {/* 设计阶段界面 */}
       {renderStage === "designing" && isLoading && (
-        <div className="px-4 py-8">
-          <DesignStageIndicator currentStepIndex={currentStepIndex} />
-        </div>
+        <DesignStageIndicator currentStepIndex={currentStepIndex} path={path} />
       )}
 
       {/* iframe 渲染容器 — 无间距，贴边显示 */}
@@ -73,13 +73,15 @@ export default function StreamRenderer({ path }: StreamRendererProps) {
         error={error} 
       />
 
-      {/* 可拖动的加载浮标 — key={path} 确保路径变化时销毁旧实例 */}
+      {/* 可拖动的加载浮标 — 按路径和实例区分浮标状态 */}
       <DraggableLoadingIndicator
-        key={path}
+        key={`${path}:${generationId ?? "loading"}`}
         isLoading={isLoading}
         streamData={streamData}
         renderStage={renderStage}
         path={path}
+        generationId={generationId}
+        onRegenerate={regenerate}
       />
     </>
   );

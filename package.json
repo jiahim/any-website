@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -12,7 +12,8 @@
     "db:generate": "prisma generate",
     "db:init": "node scripts/init-db.js",
     "db:studio": "prisma studio",
-    "db:cleanup": "node scripts/cleanup-logs.js"
+    "db:cleanup": "node scripts/cleanup-logs.js",
+    "test:discovery": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",

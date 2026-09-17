@@ -37,12 +37,17 @@ export function useHtmlDownload({ streamData, path }: UseHtmlDownloadParams): {
 
     const html = buildDownloadHtml(streamData, path);
     const fileName = buildDownloadFileName(path);
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    // 使用附件类型，避免 iOS Safari / WKWebView 将 HTML 当作可预览页面，
+    // 忽略 download 属性后直接在当前标签打开 blob URL。
+    const blob = new Blob([html], { type: "application/octet-stream" });
     const objectUrl = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
 
     anchor.href = objectUrl;
     anchor.download = fileName;
+    // 移动浏览器若不支持 blob 下载，最多在新标签中预览，不能替换当前页面。
+    anchor.target = "_blank";
+    anchor.rel = "noopener";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

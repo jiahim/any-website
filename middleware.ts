@@ -1,3 +1,4 @@
+import { VISITOR_COOKIE, UUID, visitorCookieOptions } from './app/lib/visitorIdentity';
 import { NextRequest, NextResponse } from 'next/server';
 
 // ============================================================
@@ -182,7 +183,12 @@ export function middleware(request: NextRequest) {
   }
 
   // --- 正常用户请求 → 放行 ---
-  return NextResponse.next();
+  // Establish identity with the document, before child tabs or streaming requests start.
+  const response = NextResponse.next();
+  if (!UUID.test(request.cookies.get(VISITOR_COOKIE)?.value || '')) {
+    response.cookies.set(VISITOR_COOKIE, crypto.randomUUID(), visitorCookieOptions);
+  }
+  return response;
 }
 
 // ============================================================
