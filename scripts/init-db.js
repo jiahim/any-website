@@ -18,33 +18,8 @@ async function main() {
       return;
     }
     
-    // 初始化默认数据
-    const defaultData = [
-      { path: '人工智能/ChatGPT', category: '科技', count: 156 },
-      { path: '美食/日本料理/寿司', category: '美食', count: 142 },
-      { path: '旅行/日本/东京', category: '旅行', count: 138 },
-      { path: '电影/科幻/星际穿越', category: '娱乐', count: 125 },
-      { path: '音乐/流行/周杰伦', category: '音乐', count: 118 },
-      { path: '游戏/RPG/原神', category: '游戏', count: 112 },
-      { path: '学习/编程/Python', category: '学习', count: 108 },
-      { path: '健康/运动/瑜伽', category: '健康', count: 95 },
-      { path: '艺术/绘画/梵高', category: '艺术', count: 89 },
-      { path: '动物/猫咪/布偶猫', category: '动物', count: 87 },
-      { path: '科学/天文/黑洞', category: '科学', count: 82 },
-      { path: '历史/古代/唐朝', category: '历史', count: 78 },
-      { path: '时尚/穿搭/韩系', category: '时尚', count: 75 },
-      { path: '心理/情感/冥想', category: '心理', count: 71 },
-      { path: '自然/风景/极光', category: '自然', count: 68 }
-    ];
-    
-    console.log('📝 正在插入默认数据...');
-    
-    const result = await prisma.trendingSearch.createMany({
-      data: defaultData,
-      skipDuplicates: true
-    });
-    
-    console.log(`✅ 成功插入 ${result.count} 条默认热门搜索记录`);
+    // 生产初始化不再注入虚拟搜索次数，推荐仅从真实日志生成。
+    console.log('✅ 数据库连接正常，无需填充热门搜索示例');
     console.log('🎉 数据库初始化完成！');
     
   } catch (error) {

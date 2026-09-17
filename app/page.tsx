@@ -1,7 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { sanitizeRandomWordHistory } from "@/app/lib/randomWord";
 
 // 本地存储键名
@@ -31,8 +31,100 @@ function ExternalLinkIcon() {
 // 热门搜索项类型定义
 interface TrendingSearchItem {
   path: string;
-  count: number;
-  category: string;
+  source: 'local' | 'baidu';
+  fetchedAt?: string;
+}
+
+function HotSearchSection({ source, title }: { source: 'website' | 'social'; title: string }) {
+  const [trendingSearches, setTrendingSearches] = useState<TrendingSearchItem[]>([]);
+  const [isLoadingTrending, setIsLoadingTrending] = useState(true);
+  const [trendingError, setTrendingError] = useState(false);
+  // 获取热门搜索数据
+  const fetchTrendingSearches = useCallback(async () => {
+    try {
+      setIsLoadingTrending(true);
+      setTrendingError(false);
+      const response = await fetch(`/api/trending?source=${source}&limit=12`, { cache: 'no-store' });
+      if (!response.ok) throw new Error('热门搜索暂不可用');
+      if (response.ok) {
+        const data = await response.json();
+        setTrendingSearches(data.data || []);
+      }
+    } catch (error) {
+      setTrendingError(true);
+      setTrendingSearches([]);
+      console.error('获取热门搜索失败:', error);
+    } finally {
+      setIsLoadingTrending(false);
+    }
+  }, [source]);
+
+  useEffect(() => {
+    fetchTrendingSearches();
+  }, [fetchTrendingSearches]);
+
+  return (
+      <section className="max-w-5xl mx-auto px-5 sm:px-8 pb-20 sm:pb-28">
+        <div className="flex items-end justify-between mb-8 sm:mb-10">
+          <div>
+            <p className="text-[12px] tracking-[0.15em] uppercase text-[#a8a29e] mb-2">{source === 'website' ? 'Community' : 'Society'}</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#1c1917] tracking-tight">{title}</h2>
+          </div>
+          <button
+            aria-label={`刷新${title}`}
+            onClick={fetchTrendingSearches}
+            disabled={isLoadingTrending}
+            className="text-[13px] text-[#a8a29e] hover:text-[#1c1917] disabled:opacity-30 transition-colors duration-300"
+          >
+            {isLoadingTrending ? '加载中...' : '刷新'}
+          </button>
+        </div>
+
+        <p className="mb-4 text-sm text-[#78716c]">{source === 'website' ? '本站真实探索，结合时间与评价排序，越近期权重越高。' : '来自社会热点的中文搜索词，点击探索感兴趣的话题。'}{source === 'social' && <a href="https://top.baidu.com/board?tab=realtime" target="_blank" rel="noopener noreferrer" className="ml-2 underline underline-offset-4">来源：百度热搜</a>}</p>
+        {isLoadingTrending ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-5 h-5 border-2 border-[#d6cfc5] border-t-[#1c1917] rounded-full animate-spin" />
+          </div>
+        ) : trendingSearches.length > 0 ? (
+          <div className="space-y-0">
+            {trendingSearches.map((item) => (
+              <Link
+                key={item.path}
+                href={`/${item.path.split("/").map(encodeURIComponent).join("/")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center gap-4 sm:gap-6 py-4 sm:py-5 transition-colors duration-300 hover:bg-[#f0e9de]/50"
+                style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}
+              >
+                {/* 标题 */}
+                <span className="flex-1 text-[15px] sm:text-base font-medium text-[#1c1917] group-hover:text-[#d94f2b] transition-colors duration-300 truncate">
+                  {item.path.split('/').pop()}
+                </span>
+
+                {/* 路径 */}
+                <span className="hidden sm:block text-[13px] text-[#a8a29e] font-mono truncate max-w-[200px]">
+                  /{item.path}
+                </span>
+
+                <span className="text-right text-[12px] text-[#78716c] whitespace-nowrap">
+                  {item.source === 'baidu' ? '百度热搜' : '站内推荐'}
+                  {item.source === 'baidu' && item.fetchedAt && <span className="mt-1 block text-[11px]">{new Date(item.fetchedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 获取</span>}
+                </span>
+
+                {/* 箭头 */}
+                <svg className="w-4 h-4 text-[#d6cfc5] group-hover:text-[#d94f2b] group-hover:translate-x-0.5 transition-all duration-300 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75" />
+                </svg>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="py-20 text-center">
+            <p className="text-[15px] text-[#a8a29e]">{trendingError ?  `${title}暂时无法加载，请稍后刷新` : source === 'website' ? '本站还没有足够的真实探索，试试上方的自由探索' : '暂时没有可展示的社会热词，请稍后刷新'}</p>
+          </div>
+        )}
+      </section>
+  );
 }
 
 // 探索示例 — 用真实中国用户会输入的自然语言路径，避免 AI 式分类学结构
@@ -54,8 +146,6 @@ export default function Home() {
   const [searchPath, setSearchPath] = useState("");
   const [isLoadingRandom, setIsLoadingRandom] = useState(false);
   const [randomWordsHistory, setRandomWordsHistory] = useState<string[]>([]);
-  const [trendingSearches, setTrendingSearches] = useState<TrendingSearchItem[]>([]);
-  const [isLoadingTrending, setIsLoadingTrending] = useState(false);
   const [isContactPinned, setIsContactPinned] = useState(false);
   const [isContactHovered, setIsContactHovered] = useState(false);
   const [isContactFocused, setIsContactFocused] = useState(false);
@@ -79,26 +169,6 @@ export default function Home() {
     } catch (error) {
       console.error("加载随机词汇历史失败:", error);
     }
-  }, []);
-
-  // 获取热门搜索数据
-  const fetchTrendingSearches = async () => {
-    try {
-      setIsLoadingTrending(true);
-      const response = await fetch('/api/trending?limit=12');
-      if (response.ok) {
-        const data = await response.json();
-        setTrendingSearches(data.data || []);
-      }
-    } catch (error) {
-      console.error('获取热门搜索失败:', error);
-    } finally {
-      setIsLoadingTrending(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchTrendingSearches();
   }, []);
 
   // 点击浮层外部或按 Escape 时关闭已固定的二维码浮层
@@ -294,6 +364,7 @@ export default function Home() {
               value={searchPath}
               onChange={(e) => setSearchPath(e.target.value)}
               placeholder="今晚吃什么"
+              aria-describedby="search-recommendation-notice"
               className="flex-1 bg-transparent py-3 text-[#1c1917] text-lg sm:text-xl font-medium placeholder:text-[#d6cfc5] placeholder:font-light focus:outline-none"
             />
             <button
@@ -321,6 +392,9 @@ export default function Home() {
               探索
             </button>
           </div>
+          <p id="search-recommendation-notice" className="mt-3 text-[12px] leading-relaxed text-[#78716c]">
+            你输入的内容可能会被推荐到首页，请勿填写个人隐私或敏感信息。
+          </p>
         </form>
 
         {/* 辅助信息 */}
@@ -340,72 +414,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ===== 热门搜索 ===== */}
-      <section className="max-w-5xl mx-auto px-5 sm:px-8 pb-20 sm:pb-28">
-        <div className="flex items-end justify-between mb-8 sm:mb-10">
-          <div>
-            <p className="text-[12px] tracking-[0.15em] uppercase text-[#a8a29e] mb-2">Trending</p>
-            <h2 className="text-2xl sm:text-3xl font-bold text-[#1c1917] tracking-tight">大家都在搜</h2>
-          </div>
-          <button
-            onClick={fetchTrendingSearches}
-            disabled={isLoadingTrending}
-            className="text-[13px] text-[#a8a29e] hover:text-[#1c1917] disabled:opacity-30 transition-colors duration-300"
-          >
-            {isLoadingTrending ? '加载中...' : '刷新'}
-          </button>
-        </div>
-
-        {isLoadingTrending ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-5 h-5 border-2 border-[#d6cfc5] border-t-[#1c1917] rounded-full animate-spin" />
-          </div>
-        ) : trendingSearches.length > 0 ? (
-          <div className="space-y-0">
-            {trendingSearches.map((item, index) => (
-              <Link
-                key={index}
-                href={`/${item.path}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center gap-4 sm:gap-6 py-4 sm:py-5 transition-colors duration-300 hover:bg-[#f0e9de]/50"
-                style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}
-              >
-                {/* 排名数字 */}
-                <span className={`w-7 text-right text-sm tabular-nums font-bold ${
-                  index < 3 ? 'text-[#d94f2b]' : 'text-[#d6cfc5]'
-                }`}>
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-
-                {/* 标题 */}
-                <span className="flex-1 text-[15px] sm:text-base font-medium text-[#1c1917] group-hover:text-[#d94f2b] transition-colors duration-300 truncate">
-                  {item.path.split('/').pop()}
-                </span>
-
-                {/* 路径 */}
-                <span className="hidden sm:block text-[13px] text-[#a8a29e] font-mono truncate max-w-[200px]">
-                  /{item.path}
-                </span>
-
-                {/* 次数 */}
-                <span className="text-[12px] text-[#a8a29e] tabular-nums whitespace-nowrap">
-                  {item.count} 次
-                </span>
-
-                {/* 箭头 */}
-                <svg className="w-4 h-4 text-[#d6cfc5] group-hover:text-[#d94f2b] group-hover:translate-x-0.5 transition-all duration-300 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h15m0 0l-6.75-6.75M19.5 12l-6.75 6.75" />
-                </svg>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="py-20 text-center">
-            <p className="text-[15px] text-[#a8a29e]">暂无热门搜索 — 成为第一个探索者吧</p>
-          </div>
-        )}
-      </section>
+      <HotSearchSection source="website" title="网站热词" />
+      <HotSearchSection source="social" title="社会热词" />
 
       {/* ===== 探索示例 ===== */}
       <section className="max-w-5xl mx-auto px-5 sm:px-8 pb-20 sm:pb-28">

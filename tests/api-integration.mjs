@@ -1,0 +1,42 @@
+// Run against the isolated local UAT server only (tests/mock-provider.mjs).
+import assert from 'node:assert/strict';
+const base = 'http://127.0.0.1:3147';
+const common = { 'Content-Type': 'application/json', 'user-agent': 'Mozilla/5.0 LocalUAT', origin: base };
+const response = await fetch(base+'/api/stream', {method:'POST',headers:common,body:JSON.stringify({path:'验收/海洋',userAgent:'Mozilla/5.0'})});
+assert.equal(response.status,200);
+const cookie = response.headers.get('set-cookie')?.split(';')[0];
+assert.ok(cookie);
+assert.match(response.headers.get('set-cookie'),/HttpOnly/i);
+const stream = await response.text();
+const generationId = JSON.parse(stream.split('\n').find(line=>line.includes('"generation":')).slice(6)).generation.id;
+assert.ok(generationId);
+const headers = {...common,cookie};
+const get = () => fetch(base+`/api/feedback?generationId=${generationId}`,{headers}).then(r=>r.json());
+const put = value => fetch(base+'/api/feedback',{method:'PUT',headers,body:JSON.stringify({generationId,value})});
+assert.equal((await get()).value,0);
+for (const value of [1,1,0,-1,0,-1,1,0]) {
+  const result = await put(value); assert.equal(result.status,200); assert.equal((await result.json()).value,value); assert.equal((await get()).value,value);
+}
+assert.equal((await put(2)).status,400);
+const stranger = await fetch(base+`/api/feedback?generationId=${generationId}`);
+assert.equal(stranger.status,404);
+const forged = await fetch(base+'/api/feedback',{method:'PUT',headers:{...common,cookie:'aw-visitor=00000000-0000-4000-8000-000000000000'},body:JSON.stringify({generationId,value:1})});
+assert.equal(forged.status,404);
+const csrf = await fetch(base+'/api/feedback',{method:'PUT',headers:{...headers,origin:'https://unrelated.example'},body:JSON.stringify({generationId,value:1})});
+assert.equal(csrf.status,403);
+const records = await Promise.all(Array.from({length:5},()=>fetch(base+'/api/trending',{method:'POST',headers,body:JSON.stringify({path:'验收/海洋'})})));
+assert.ok(records.every(r=>r.ok));
+const list = await fetch(base+'/api/trending?limit=-1').then(r=>r.json());
+assert.equal(list.success,true); assert.ok(list.data.length<=12); assert.ok(list.data.some(x=>x.path==='验收/海洋'));
+assert.ok(list.data.every(x=>!('count' in x)));
+assert.equal(list.source,'website');
+assert.ok(list.data.every(x=>x.source==='local'));
+const social = await fetch(base+'/api/trending?source=social&limit=12').then(r=>r.json());
+assert.equal(social.success,true);
+assert.equal(social.source,'social');
+assert.ok(social.data.length>0 && social.data.length<=12);
+assert.ok(social.data.every(x=>x.source==='baidu'));
+const empty = await fetch(base+'/api/trending?source=website&category=nonexistent-uat-category').then(r=>r.json());
+assert.deepEqual(empty.data,[]);
+assert.equal((await fetch(base+'/api/trending?source=mixed')).status,400);
+console.log(JSON.stringify({passed:true,generationId,voteTransitions:8,checks:['ownership','cross-origin','invalid vote','idempotent retry','concurrent search dedup','independent website/social sources','no external fallback for empty website','reject invalid source']},null,2));
