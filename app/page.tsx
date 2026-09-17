@@ -364,6 +364,7 @@ export default function Home() {
               value={searchPath}
               onChange={(e) => setSearchPath(e.target.value)}
               placeholder="今晚吃什么"
+              aria-describedby="search-recommendation-notice"
               className="flex-1 bg-transparent py-3 text-[#1c1917] text-lg sm:text-xl font-medium placeholder:text-[#d6cfc5] placeholder:font-light focus:outline-none"
             />
             <button
@@ -391,6 +392,9 @@ export default function Home() {
               探索
             </button>
           </div>
+          <p id="search-recommendation-notice" className="mt-3 text-[12px] leading-relaxed text-[#78716c]">
+            你输入的内容可能会被推荐到首页，请勿填写个人隐私或敏感信息。
+          </p>
         </form>
 
         {/* 辅助信息 */}
