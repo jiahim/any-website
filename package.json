@@ -14,11 +14,11 @@
     "db:studio": "prisma studio",
     "db:cleanup": "node scripts/cleanup-logs.js",
     "test:discovery": "node --experimental-strip-types --test tests/*.test.ts",
-    "feedback:mail": "node scripts/send-feedback-mail.mjs",
     "feedback:export": "node scripts/export-feedback-screenshot.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",
+    "@vercel/queue": "0.11.0",
     "next": "15.3.6",
     "nodemailer": "10.4.0",
     "prisma": "^6.14.0",

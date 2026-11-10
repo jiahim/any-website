@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/site-feedback/notify/route.ts": {
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "site-feedback-mail" }]
+    }
+  },
+  "crons": [{ "path": "/api/site-feedback/recover", "schedule": "0 3 * * *" }]
+}
