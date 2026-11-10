@@ -52,11 +52,11 @@
 测试脚本需要支持 TypeScript stripping 的 Node（本次使用 Node 24）。用隔离库配置 `.env.local`，执行 `prisma db push`，然后：
 
 ```sh
-AW_LOCAL_UAT=1 NODE_OPTIONS="--import $(pwd)/tests/mock-provider.mjs" pnpm dev --hostname 127.0.0.1 --port 3147
+SOCIAL_HOT_SEARCH_API_BASE_URL=http://127.0.0.1:3148 AW_LOCAL_UAT=1 NODE_OPTIONS="--import $(pwd)/tests/mock-provider.mjs" pnpm dev --hostname 127.0.0.1 --port 3147
 node tests/api-integration.mjs
 ```
 
-模型 preload 仅用于本地测试，不属于应用运行时入口，不应在生产设置这些测试环境变量。
+测试 preload 为页面生成和社会热词提供固定样本，仅用于本地验收，不应在生产设置这些测试环境变量。
 
 ## 本地辅助资源
 当前保留 3147 端口的验收预览和 55439 端口的专用数据库，预览模型为固定样例；原工作目录保持未修改。未提交、未推送、未创建 PR。

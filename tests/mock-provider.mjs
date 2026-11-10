@@ -3,6 +3,18 @@ if (process.env.AW_LOCAL_UAT === '1') {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('http://127.0.0.1:3148/api/s?')) {
+      const id = new URL(url).searchParams.get('id');
+      const titles = {
+        weibo: ['白小纯口碑反转', 'BLG战胜T1', '英仙座流星雨'],
+        'bilibili-hot-search': ['《明日方舟》发布预告', '东方Project'],
+        douyin: ['赛博朋克', '台风'],
+      }[id];
+      if (!titles || process.env.AW_LOCAL_UAT_DISABLED_FEED === id) {
+        return new Response(null, { status: 503 });
+      }
+      return Response.json({ status: 'success', items: titles.map(title => ({ title })) });
+    }
     if (url.startsWith('https://api.siliconflow.cn/')) {
       const html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>探索海洋</title><style>body{background:#eaf3f3;color:#16404a;font-family:system-ui;padding:48px}h1{font-size:48px}p{max-width:650px;line-height:1.8}a{display:block;margin-top:24px}</style></head><body><h1>探索海洋</h1><p>这是一份本地验收页面，用于验证完整生成、浮标评价和下载交互。模型响应使用固定测试内容，评价数据写入独立的本地数据库。</p><a href="/海洋/珊瑚">继续探索珊瑚世界</a></body></html>';
       const encoder = new TextEncoder();
