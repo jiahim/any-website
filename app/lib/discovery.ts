@@ -103,32 +103,61 @@ export interface SocialHotTitle {
   source: SocialSource;
 }
 
-export function selectModelSocialKeywords(titles: readonly SocialHotTitle[], output: unknown): Suggestion[] {
-  if (!Array.isArray(output) || output.length !== titles.length) {
-    throw new Error('Incomplete social keyword output');
+export class SocialKeywordOutputError extends Error {
+  readonly reason: 'missing_content' | 'truncated_output' | 'output_not_array' | 'item_count_mismatch'
+    | 'invalid_id' | 'duplicate_id' | 'invalid_keyword_type';
+  readonly outputItems?: number;
+
+  constructor(reason: SocialKeywordOutputError['reason'], outputItems?: number) {
+    super(reason);
+    this.reason = reason;
+    this.outputItems = outputItems;
   }
+}
+
+export function selectModelSocialKeywords(titles: readonly SocialHotTitle[], output: unknown) {
+  if (!Array.isArray(output)) throw new SocialKeywordOutputError('output_not_array');
+  if (output.length !== titles.length) throw new SocialKeywordOutputError('item_count_mismatch', output.length);
 
   const keywords = new Map<number, string | null>();
   for (const item of output) {
     const id = item?.id;
     const keyword = item?.keyword;
-    if (!Number.isInteger(id) || id < 1 || id > titles.length || keywords.has(id)
-        || (keyword !== null && typeof keyword !== 'string')) {
-      throw new Error('Invalid social keyword output');
+    if (!Number.isInteger(id) || id < 1 || id > titles.length) throw new SocialKeywordOutputError('invalid_id');
+    if (keywords.has(id)) throw new SocialKeywordOutputError('duplicate_id');
+    if (keyword !== null && typeof keyword !== 'string') {
+      throw new SocialKeywordOutputError('invalid_keyword_type');
     }
     keywords.set(id, keyword);
   }
 
-  return titles.flatMap(({ title, source }, index) => {
-    const path = normalizeSocialKeyword(keywords.get(index + 1));
-    if (!path) return [];
+  const excluded = { modelSkipped: 0, invalidKeyword: 0, notInTitle: 0, scoreFragment: 0 };
+  const candidates = titles.flatMap(({ title, source }, index) => {
+    const keyword = keywords.get(index + 1);
+    if (keyword === null) {
+      excluded.modelSkipped++;
+      return [];
+    }
+    const path = normalizeSocialKeyword(keyword);
+    if (!path) {
+      excluded.invalidKeyword++;
+      return [];
+    }
     const text = title.normalize('NFKC');
     const start = text.indexOf(path);
-    if (start < 0 || /\d\s*:\s*\d|\d+分$/u.test(path)) return [];
+    if (start < 0) {
+      excluded.notInTitle++;
+      return [];
+    }
     // A team followed by the first half of a score is still a score.
-    if (/\d$/u.test(path) && /^\s*:\s*\d/u.test(text.slice(start + path.length))) return [];
+    if (/\d\s*:\s*\d|\d+分$/u.test(path)
+        || (/\d$/u.test(path) && /^\s*:\s*\d/u.test(text.slice(start + path.length)))) {
+      excluded.scoreFragment++;
+      return [];
+    }
     return [{ path, source }];
   });
+  return { candidates, excluded };
 }
 
 export function interleaveSocialSearches(feeds: readonly Suggestion[][]): Suggestion[] {

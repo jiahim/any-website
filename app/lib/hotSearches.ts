@@ -165,7 +165,14 @@ export async function refreshSocialKeywords(scheduledAt: Date) {
 
     const candidates = (await extractSocialKeywords(titles)).filter(item => isValidSearchPath(item.path));
     const feeds = PLATFORMS.map(({ source }) => selectSuggestions(candidates.filter(item => item.source === source), TITLES_PER_PLATFORM));
-    if (feeds.some(items => items.length === 0)) throw new Error('A social feed has no valid keywords');
+    if (feeds.some(items => items.length === 0)) {
+      console.warn('[social-hot-search]', JSON.stringify({
+        phase: 'keyword_validation',
+        reason: 'no_valid_keywords_for_source',
+        counts: PLATFORMS.map(({ source }, index) => ({ source, acceptedItems: feeds[index].length })),
+      }));
+      throw new Error('A social feed has no valid keywords');
+    }
     const keywords = selectSuggestions(interleaveSocialSearches(feeds), TITLES_PER_PLATFORM * PLATFORMS.length);
     return await publish(slot, { fingerprint, keywords }, fetchedAt) ? 'published' : 'claim_lost';
   } finally {

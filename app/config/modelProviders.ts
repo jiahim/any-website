@@ -193,9 +193,12 @@ const TIER_LABEL: Record<ModelTier, string> = {
 };
 
 export class ModelProviderConfigError extends Error {
-  constructor(message: string) {
+  readonly reason?: 'missing_provider' | 'unknown_provider' | 'model_unavailable' | 'missing_api_key';
+
+  constructor(message: string, reason?: ModelProviderConfigError['reason']) {
     super(message);
     this.name = 'ModelProviderConfigError';
+    this.reason = reason;
   }
 }
 
@@ -242,12 +245,13 @@ export function resolveModelProviderConfig(
   const providerId = environment[providerEnv]?.trim().toLowerCase();
 
   if (!providerId) {
-    throw new ModelProviderConfigError(`缺少环境变量 ${providerEnv}`);
+    throw new ModelProviderConfigError(`缺少环境变量 ${providerEnv}`, 'missing_provider');
   }
 
   if (!(providerId in MODEL_PROVIDERS)) {
     throw new ModelProviderConfigError(
       `${providerEnv} 配置了未知 Provider "${providerId}"，可选值：${Object.keys(MODEL_PROVIDERS).join('、')}`,
+      'unknown_provider',
     );
   }
 
@@ -265,6 +269,7 @@ export function resolveModelProviderConfig(
 
     throw new ModelProviderConfigError(
       `${provider.name} 未提供可用于${TIER_LABEL[tier]}档的模型，${providerEnv} 可选值：${availableProviders}`,
+      'model_unavailable',
     );
   }
 
@@ -273,6 +278,7 @@ export function resolveModelProviderConfig(
   if (!apiKey) {
     throw new ModelProviderConfigError(
       `缺少环境变量 ${provider.apiKeyEnv}（${provider.name}${TIER_LABEL[tier]}模型）`,
+      'missing_api_key',
     );
   }
 

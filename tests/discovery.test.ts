@@ -56,12 +56,18 @@ test('model keywords follow input rank, use original title spans, and drop score
     { id: 4, keyword: 'Faker传奇' }, { id: 5, keyword: '勇士51分' }, { id: 2, keyword: '文班亚马' },
     { id: 7, keyword: 'iPhone 17' }, { id: 6, keyword: '黑神话：悟空' },
   ];
-  assert.deepEqual(selectModelSocialKeywords(input, output), [
-    { source: 'weibo', path: '进博会' }, { source: 'bilibili', path: '文班亚马' },
-    { source: 'bilibili', path: '黑神话:悟空' }, { source: 'bilibili', path: 'iPhone 17' },
-  ]);
-  assert.throws(() => selectModelSocialKeywords(input, output.slice(1)), /incomplete/i);
-  assert.throws(() => selectModelSocialKeywords(input, [output[1], ...output.slice(1)]), /invalid/i);
+  assert.deepEqual(selectModelSocialKeywords(input, output), {
+    candidates: [
+      { source: 'weibo', path: '进博会' }, { source: 'bilibili', path: '文班亚马' },
+      { source: 'bilibili', path: '黑神话:悟空' }, { source: 'bilibili', path: 'iPhone 17' },
+    ],
+    excluded: { modelSkipped: 1, invalidKeyword: 0, notInTitle: 1, scoreFragment: 2 },
+  });
+  assert.throws(() => selectModelSocialKeywords(input, {}), { reason: 'output_not_array' });
+  assert.throws(() => selectModelSocialKeywords(input, output.slice(1)), { reason: 'item_count_mismatch', outputItems: 7 });
+  assert.throws(() => selectModelSocialKeywords(input, [output[1], ...output.slice(1)]), { reason: 'duplicate_id' });
+  assert.throws(() => selectModelSocialKeywords(input, [{ id: 0, keyword: null }, ...output.slice(1)]), { reason: 'invalid_id' });
+  assert.throws(() => selectModelSocialKeywords(input, [{ id: 8, keyword: 8 }, ...output.slice(1)]), { reason: 'invalid_keyword_type' });
 });
 
 test('three social sources take turns before the display limit and tolerate an empty source', () => {

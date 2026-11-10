@@ -8,9 +8,9 @@ export const POST = handleSchedule(async ({ name, scheduledAt }) => {
   if (name !== 'social-hot-words') throw new Error('Unexpected schedule');
   try {
     const result = await refreshSocialKeywords(scheduledAt);
-    console.info('[social-hot-search] Scheduled refresh', result);
+    process.stdout.write(`[social-hot-search] ${JSON.stringify({ phase: 'schedule_result', outcome: result, scheduledAt })}\n`);
   } catch {
-    console.error('[social-hot-search] Scheduled refresh failed; keeping the previous snapshot');
+    console.error('[social-hot-search]', JSON.stringify({ phase: 'schedule_result', outcome: 'failed', scheduledAt }));
     throw new Error('Social keyword refresh failed');
   }
 });
