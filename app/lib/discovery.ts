@@ -5,9 +5,16 @@ export function isWithinAge(fetchedAt: Date, maxAgeMs: number, now = Date.now())
   const age = now - fetchedAt.getTime();
   return Number.isFinite(age) && age >= 0 && age < maxAgeMs;
 }
+export const SOCIAL_SOURCE_LABELS = {
+  weibo: '微博',
+  bilibili: 'B 站',
+  douyin: '抖音',
+} as const;
+export type SocialSource = keyof typeof SOCIAL_SOURCE_LABELS;
+
 export interface Suggestion {
   path: string;
-  source: 'local' | 'baidu';
+  source: 'local' | SocialSource;
   score?: number;
   fetchedAt?: string;
 }
@@ -58,25 +65,52 @@ export function rankSearches(logs: Activity[], feedback: Feedback[], blocked: st
   }).sort((a,b) => b.score - a.score || a.path.localeCompare(b.path, 'zh-CN'));
 }
 
-export function parseBaiduHotSearches(html: string): Suggestion[] {
-  const match = html.match(/<!--s-data:([\s\S]*?)-->/);
-  if (!match) throw new Error('热榜结构已变化');
-  const parsed = JSON.parse(match[1]);
-  const cards: unknown = parsed?.data?.cards ?? parsed?.cards;
-  if (!Array.isArray(cards)) throw new Error('热榜数据无效');
+const TITLE_CLAUSE = /^透过|如何|怎么|为何|为什么|到底|宣布|回应|辟谣|曝光|通报|已致|战胜|击败|夺冠|全部|上榜|全方位|口碑反转|预告发布|(?:了|吗|呢)$/u;
+
+export function normalizeSocialKeyword(value: unknown): string | null {
+  const path = normalizeSearchPath(value);
+  if (!path || path.length < 2 || path.length > 12) return null;
+  return /^[\p{L}\p{N}]+(?:[ :·-][\p{L}\p{N}]+)*$/u.test(path) && /\p{L}/u.test(path) ? path : null;
+}
+
+function socialKeyword(title: string): string | null {
+  const text = title.normalize('NFKC').trim();
+  // An explicitly named work is a better keyword than the rest of its headline.
+  const works = [...text.matchAll(/《([^《》]+)》/gu)];
+  if (works.length === 1) return normalizeSocialKeyword(works[0][1]);
+
+  const topic = text.match(/^#([^#]+)#$/u)?.[1] ?? text;
+  const candidate = topic.replace(/(?:口碑反转|预告发布|全方位展示)$/u, '');
+  // Reject path separators before normalization can trim them off.
+  if (/[\/\\]/u.test(candidate) || TITLE_CLAUSE.test(candidate)) return null;
+  return normalizeSocialKeyword(candidate);
+}
+
+export function parseSocialHotSearches(payload: unknown, source: SocialSource): Suggestion[] {
+  const board = payload as { status?: unknown; items?: unknown } | null;
+  if ((board?.status !== 'success' && board?.status !== 'cache') || !Array.isArray(board.items)) {
+    throw new Error('热榜数据无效');
+  }
+
+  const candidates: Suggestion[] = [];
+  for (const item of board.items.slice(0, 50)) {
+    if (typeof item?.title !== 'string' || item.title.length > 180) continue;
+    const path = socialKeyword(item.title);
+    if (path) candidates.push({ path, source });
+  }
+  if (!candidates.length) throw new Error('热榜没有可用短词');
+  return selectSuggestions(candidates, 50);
+}
+
+export function interleaveSocialSearches(feeds: readonly Suggestion[][]): Suggestion[] {
   const result: Suggestion[] = [];
-  const seen = new Set<string>();
-  for (const card of cards) {
-    if (!Array.isArray(card?.content)) continue;
-    for (const item of card.content) {
-      const path = normalizeSearchPath(item?.word ?? item?.query ?? item?.title);
-      if (!path || path.length > 60 || seen.has(path.toLocaleLowerCase())) continue;
-      seen.add(path.toLocaleLowerCase());
-      result.push({ path, source: 'baidu' });
+  const length = Math.max(0, ...feeds.map(feed => feed.length));
+  for (let rank = 0; rank < length; rank++) {
+    for (const feed of feeds) {
+      if (feed[rank]) result.push(feed[rank]);
     }
   }
-  if (!result.length) throw new Error('热榜为空');
-  return result.sort((a,b) => Number(/\p{Script=Han}/u.test(b.path)) - Number(/\p{Script=Han}/u.test(a.path))).slice(0,50);
+  return result;
 }
 
 export function selectSuggestions(items: Suggestion[], limit: number): Suggestion[] {

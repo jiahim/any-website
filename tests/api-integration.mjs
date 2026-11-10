@@ -35,7 +35,10 @@ const social = await fetch(base+'/api/trending?source=social&limit=12').then(r=>
 assert.equal(social.success,true);
 assert.equal(social.source,'social');
 assert.ok(social.data.length>0 && social.data.length<=12);
-assert.ok(social.data.every(x=>x.source==='baidu'));
+assert.deepEqual(new Set(social.data.map(x=>x.source)), new Set(['weibo', 'bilibili', 'douyin']));
+assert.ok(social.data.every(x=>x.fetchedAt && !x.path.includes('/')));
+assert.ok(social.data.some(x=>x.path==='白小纯'));
+assert.ok(social.data.every(x=>x.path!=='BLG战胜T1'));
 const empty = await fetch(base+'/api/trending?source=website&category=nonexistent-uat-category').then(r=>r.json());
 assert.deepEqual(empty.data,[]);
 assert.equal((await fetch(base+'/api/trending?source=mixed')).status,400);
