@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isWithinAge, rankSearches, normalizeSearchPath, selectSuggestions, parseBaiduHotSearches } from '../app/lib/discovery.ts';
+import { isWithinAge, rankSearches, normalizeSearchPath, selectSuggestions, parseSocialHotSearchTitles, selectModelSocialKeywords, interleaveSocialSearches } from '../app/lib/discovery.ts';
 const now = new Date('2026-09-14T12:00:00Z');
 const ago = (days: number) => new Date(now.getTime() - days * 86400000);
 test('all history participates with a 30 day half life and latest visitor only', () => {
@@ -33,14 +33,56 @@ test('normalization preserves distinct paths and handles bad input', () => {
   assert.equal(normalizeSearchPath('猫/品种'), '猫/品种');
   for (const x of [null, {}, '%ZZ', 'https://bad.com', '../foo', 'test', '乱码�']) assert.equal(normalizeSearchPath(x), null);
 });
-test('Baidu parse is Chinese first, deduplicated and never invents dates', () => {
-  const html = '<!--s-data:'+JSON.stringify({data:{cards:[{content:[{word:'中文热词'},{word:'中文热词'},{word:'AI'},{word:'另一个词'},{word:'test'}]}]}})+'-->';
-  assert.deepEqual(parseBaiduHotSearches(html).map(x=>x.path), ['中文热词','另一个词','AI']);
-  assert.throws(()=>parseBaiduHotSearches('<html>changed</html>'));
+test('NewsNow provides original ranked headlines for the extractor', () => {
+  const items = [{ title: '文班亚马40分11篮板' }, { title: '《黑神话：悟空》发布预告' }, { title: 123 }, null, { title: '  ' }];
+  assert.deepEqual(parseSocialHotSearchTitles({ status: 'cache', items }), ['文班亚马40分11篮板', '《黑神话：悟空》发布预告']);
+  assert.throws(() => parseSocialHotSearchTitles({ status: 'error', items }), { reason: 'invalid_payload' });
+  assert.throws(() => parseSocialHotSearchTitles({ status: 'success', items: [] }), { reason: 'no_eligible_titles' });
+});
+
+test('model keywords follow input rank, use original title spans, and drop score fragments', () => {
+  const input = [
+    { source: 'weibo', title: '进博会大型种草现场' },
+    { source: 'bilibili', title: '文班亚马40分11篮板' },
+    { source: 'douyin', title: '湖人124:114老鹰' },
+    { source: 'bilibili', title: '致敬Faker 永不熄的传奇' },
+    { source: 'douyin', title: '勇士51分大胜鹈鹕豪取8连胜' },
+    { source: 'bilibili', title: '《黑神话：悟空》发布预告' },
+    { source: 'bilibili', title: 'iPhone 17发布' },
+    { source: 'douyin', title: '五官这下真的是各过各的了' },
+  ] as const;
+  const output = [
+    { id: 8, keyword: null }, { id: 3, keyword: '湖人124' }, { id: 1, keyword: '进博会' },
+    { id: 4, keyword: 'Faker传奇' }, { id: 5, keyword: '勇士51分' }, { id: 2, keyword: '文班亚马' },
+    { id: 7, keyword: 'iPhone 17' }, { id: 6, keyword: '黑神话：悟空' },
+  ];
+  assert.deepEqual(selectModelSocialKeywords(input, output), [
+    { source: 'weibo', path: '进博会' }, { source: 'bilibili', path: '文班亚马' },
+    { source: 'bilibili', path: '黑神话:悟空' }, { source: 'bilibili', path: 'iPhone 17' },
+  ]);
+  assert.throws(() => selectModelSocialKeywords(input, output.slice(1)), /incomplete/i);
+  assert.throws(() => selectModelSocialKeywords(input, [output[1], ...output.slice(1)]), /invalid/i);
+});
+
+test('three social sources take turns before the display limit and tolerate an empty source', () => {
+  const feeds = [
+    [{ path: '极光', source: 'weibo' as const }, { path: '远山', source: 'weibo' as const }],
+    [{ path: '极光', source: 'bilibili' as const }, { path: '东方Project', source: 'bilibili' as const }],
+    [{ path: '赛博朋克', source: 'douyin' as const }, { path: '雪国', source: 'douyin' as const }],
+  ];
+  assert.deepEqual(interleaveSocialSearches(feeds).map(row => row.source), [
+    'weibo', 'bilibili', 'douyin', 'weibo', 'bilibili', 'douyin',
+  ]);
+  assert.deepEqual(selectSuggestions(interleaveSocialSearches(feeds), 4).map(row => row.path), [
+    '极光', '赛博朋克', '远山', '东方Project',
+  ]);
+  assert.deepEqual(interleaveSocialSearches([[], feeds[1], feeds[2]]).map(row => row.source), [
+    'bilibili', 'douyin', 'bilibili', 'douyin',
+  ]);
 });
 test('website and social lists preserve independent order and never fill each other', () => {
   const local = Array.from({length:12},(_,i)=>({path:`站内${i}`,source:'local' as const,score:12-i}));
-  const external = [{path:'站内0',source:'baidu' as const},{path:'外部词',source:'baidu' as const}];
+  const external = [{path:'站内0',source:'weibo' as const},{path:'外部词',source:'weibo' as const}];
   assert.deepEqual(selectSuggestions(local,12),local);
   assert.deepEqual(selectSuggestions(external,12),external);
   assert.deepEqual(selectSuggestions([],12),[]);
