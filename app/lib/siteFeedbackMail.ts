@@ -22,11 +22,15 @@ function mailSettings() {
   return { host: host.trim(), port, security, user, pass, from, to };
 }
 
-export function smtpFailure(error: unknown): 'retry' | 'failed' | 'unknown' {
-  if (!error || typeof error !== 'object') return 'unknown';
-  const { responseCode, code, originalCode, timeoutType } = error as {
-    responseCode?: number; code?: string; originalCode?: string; timeoutType?: string;
+function smtpErrorFields(error: unknown) {
+  if (!error || typeof error !== 'object') return {};
+  return error as {
+    responseCode?: number; code?: string; originalCode?: string; timeoutType?: string; command?: string;
   };
+}
+
+export function smtpFailure(error: unknown): 'retry' | 'failed' | 'unknown' {
+  const { responseCode, code, originalCode, timeoutType } = smtpErrorFields(error);
   if (responseCode && responseCode >= 400 && responseCode < 500) return 'retry';
   if (responseCode && responseCode >= 500 && responseCode < 600) return 'failed';
   if (code === 'EAUTH' || code === 'EENVELOPE') return 'failed';
@@ -34,6 +38,23 @@ export function smtpFailure(error: unknown): 'retry' | 'failed' | 'unknown' {
   if (code === 'EDNS' || originalCode === 'ECONNREFUSED' || timeoutType === 'CONNECT_TIMEOUT'
     || timeoutType === 'GREETING_TIMEOUT' || timeoutType === 'UPGRADE_TIMEOUT') return 'retry';
   return 'unknown';
+}
+
+function diagnosticCode(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,31}$/.test(value) ? value : undefined;
+}
+
+export function smtpFailureDiagnostics(error: unknown) {
+  const { responseCode, code, originalCode, timeoutType, command } = smtpErrorFields(error);
+  const stage = typeof command === 'string' ? command.split(' ', 1)[0] : '';
+  return {
+    code: diagnosticCode(code),
+    originalCode: diagnosticCode(originalCode),
+    responseCode: typeof responseCode === 'number' && Number.isInteger(responseCode)
+      && responseCode >= 400 && responseCode < 600 ? responseCode : undefined,
+    timeoutType: diagnosticCode(timeoutType),
+    stage: /^(CONN|EHLO|HELO|STARTTLS|AUTH|MAIL|RCPT|DATA|API|RSET|QUIT)$/.test(stage) ? stage : undefined,
+  };
 }
 
 export function feedbackMailRetrySeconds(attempt: number): number | undefined {
@@ -91,6 +112,7 @@ export async function sendFeedbackMail(id: string): Promise<number | undefined> 
     disableUrlAccess: true,
   });
   let outcome: 'sent' | ReturnType<typeof smtpFailure> = 'unknown';
+  const startedAt = Date.now();
   try {
     const mimeType = row.screenshotMimeType ?? '';
     const extension = SCREENSHOT_EXTENSIONS[mimeType];
@@ -113,6 +135,13 @@ export async function sendFeedbackMail(id: string): Promise<number | undefined> 
     }
   } catch (error) {
     outcome = smtpFailure(error);
+    console.warn('[feedback-mail] SMTP attempt failed', {
+      feedbackId: id,
+      attempt: row.mailAttempts,
+      outcome,
+      durationMs: Date.now() - startedAt,
+      ...smtpFailureDiagnostics(error),
+    });
   } finally {
     transport.close();
   }
