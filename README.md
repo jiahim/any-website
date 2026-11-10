@@ -39,7 +39,7 @@
 ## 🚀 快速开始
 
 ### 环境要求
-- Node.js 18+
+- Node.js 20.9+
 - pnpm (推荐) 或 npm
 
 ### 安装依赖
@@ -295,6 +295,10 @@ pnpm db:cleanup
 - [Next.js](https://nextjs.org/) - 优秀的React框架
 - [Tailwind CSS](https://tailwindcss.com/) - 实用的CSS框架
 - [硅基流动](https://www.siliconflow.com/) 及其他已接入 Provider - AI 模型服务
+
+## 站点意见反馈
+
+访客可在首页提交最多 500 字的留言和一张可选截图。站主可配置 SMTP，把正文和截图一起转发到固定邮箱。查看[数据库与发信配置](/docs/site-feedback.md)。
 
 ## 📞 联系方式
 
