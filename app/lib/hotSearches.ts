@@ -1,6 +1,6 @@
 import { prisma } from './prisma';
 import {
-  interleaveSocialSearches, isWithinAge, normalizeSocialKeyword, parseSocialHotSearches,
+  interleaveSocialSearches, isWithinAge, normalizeSocialKeyword, parseSocialHotSearches, SocialHotSearchParseError,
   type SocialSource, type Suggestion,
 } from './discovery';
 
@@ -26,6 +26,41 @@ const feeds = PLATFORMS.map((platform): Feed => ({
   ...platform, snapshot: null, pending: null, retryAfter: 0,
 }));
 
+interface FeedAttempt {
+  phase: 'configure_url' | 'request' | 'http_response' | 'read_body' | 'parse_json' | 'parse_board'
+    | 'read_snapshot' | 'write_snapshot';
+  signal?: AbortSignal;
+  httpStatus?: number;
+}
+
+function safeErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return;
+  if (typeof error.code === 'string' && /^[A-Z][A-Z0-9_]{2,39}$/.test(error.code)) return error.code;
+}
+
+function logFeedFailure(feed: Feed, attempt: FeedAttempt, error: unknown, elapsedMs?: number) {
+  const cause = error instanceof Error ? error.cause : undefined;
+  const parseError = error instanceof SocialHotSearchParseError ? error : undefined;
+  let reason: string | undefined = parseError?.reason;
+  if ((attempt.phase === 'request' || attempt.phase === 'read_body') && attempt.signal?.aborted) {
+    reason = 'timeout';
+  }
+  if (attempt.phase === 'request' && cause instanceof Error && cause.message === 'unexpected redirect') {
+    reason = 'unexpected_redirect';
+  }
+
+  // Keep URLs, response bodies, and error messages out of production logs.
+  console.warn('[social-hot-search]', JSON.stringify({
+    source: feed.source,
+    phase: attempt.phase,
+    reason,
+    httpStatus: attempt.httpStatus,
+    errorCode: safeErrorCode(cause) ?? safeErrorCode(error),
+    upstreamItems: parseError?.upstreamItems,
+    elapsedMs,
+  }));
+}
+
 function available(feed: Feed, maxAge: number): Suggestion[] | undefined {
   if (!feed.snapshot || !isWithinAge(feed.snapshot.fetchedAt, maxAge)) return;
   const fetchedAt = feed.snapshot.fetchedAt.toISOString();
@@ -42,20 +77,27 @@ async function loadSnapshot(feed: Feed) {
       return path ? [{ path, source: feed.source }] : [];
     });
     if (items.length) feed.snapshot = { items, fetchedAt: saved.fetchedAt };
-  } catch { /* Public feeds can run without database snapshots. */ }
+  } catch (error) {
+    logFeedFailure(feed, { phase: 'read_snapshot' }, error);
+  }
 }
 
-async function fetchFeed(feed: Feed): Promise<Suggestion[]> {
+async function fetchFeed(feed: Feed, attempt: FeedAttempt): Promise<Suggestion[]> {
   const url = new URL('/api/s', process.env.SOCIAL_HOT_SEARCH_API_BASE_URL?.trim() || DEFAULT_API_BASE);
   url.searchParams.set('id', feed.id);
+  attempt.phase = 'request';
+  attempt.signal = AbortSignal.timeout(6000);
   const response = await fetch(url, {
     cache: 'no-store',
     redirect: 'error',
-    signal: AbortSignal.timeout(6000),
+    signal: attempt.signal,
     headers: { Accept: 'application/json' },
   });
+  attempt.phase = 'http_response';
+  attempt.httpStatus = response.status;
   if (!response.ok || !response.body) throw new Error('热词来源暂不可用');
 
+  attempt.phase = 'read_body';
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let json = '', bytes = 0;
@@ -71,7 +113,10 @@ async function fetchFeed(feed: Feed): Promise<Suggestion[]> {
   } finally {
     await reader.cancel().catch(() => {});
   }
-  return parseSocialHotSearches(JSON.parse(json), feed.source);
+  attempt.phase = 'parse_json';
+  const payload: unknown = JSON.parse(json);
+  attempt.phase = 'parse_board';
+  return parseSocialHotSearches(payload, feed.source);
 }
 
 async function refresh(feed: Feed): Promise<Suggestion[]> {
@@ -83,8 +128,10 @@ async function refresh(feed: Feed): Promise<Suggestion[]> {
   const saved = available(feed, FRESH_MS);
   if (saved) return saved;
 
+  const attempt: FeedAttempt = { phase: 'configure_url' };
+  const startedAt = Date.now();
   try {
-    const items = await fetchFeed(feed);
+    const items = await fetchFeed(feed, attempt);
     const fetchedAt = new Date();
     feed.snapshot = { items, fetchedAt };
     feed.retryAfter = 0;
@@ -96,10 +143,13 @@ async function refresh(feed: Feed): Promise<Suggestion[]> {
           create: { source: feed.source, ...data },
           update: data,
         });
-      } catch { /* Keep the process-local snapshot if persistence is unavailable. */ }
+      } catch (error) {
+        logFeedFailure(feed, { phase: 'write_snapshot' }, error);
+      }
     }
-  } catch {
+  } catch (error) {
     feed.retryAfter = Date.now() + 60_000;
+    logFeedFailure(feed, attempt, error, Date.now() - startedAt);
   }
   return available(feed, MAX_AGE_MS) ?? [];
 }

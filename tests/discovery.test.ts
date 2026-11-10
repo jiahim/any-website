@@ -59,8 +59,18 @@ test('social search keeps short terms and named works, skips headlines and inval
     { path: '黑神话:悟空', source: 'weibo' },
     { path: '台风', source: 'weibo' },
   ]);
-  assert.throws(() => parseSocialHotSearches({ status: 'error', items: payload.items }, 'weibo'));
-  assert.throws(() => parseSocialHotSearches({ status: 'success', items: [] }, 'weibo'));
+  assert.throws(
+    () => parseSocialHotSearches({ status: 'error', items: payload.items }, 'weibo'),
+    { reason: 'invalid_payload' },
+  );
+  assert.throws(
+    () => parseSocialHotSearches({ status: 'success', items: [] }, 'weibo'),
+    { reason: 'no_eligible_keywords', upstreamItems: 0 },
+  );
+  assert.throws(
+    () => parseSocialHotSearches({ status: 'success', items: [{ title: 'BLG战胜T1' }] }, 'weibo'),
+    { reason: 'no_eligible_keywords', upstreamItems: 1 },
+  );
 });
 
 test('three social sources take turns before the display limit and tolerate an empty source', () => {
