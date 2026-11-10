@@ -39,11 +39,11 @@ export function useStreamData(path: string) {
       const processLine = (line: string) => {
         if (!line.startsWith('data:')) return;
         const payload = line.slice(5).trim();
-        if (!payload) return;
-        if (payload === '[DONE]') { completed = true; return; }
+        if (!payload || payload === '[DONE]') return;
         const data = JSON.parse(payload);
         if (data.error) throw new Error('页面生成中断，请重试');
         if (data.generation) {
+          completed = data.generation.completed === true;
           id = typeof data.generation.id === 'string' ? data.generation.id : null;
           return;
         }
@@ -65,7 +65,9 @@ export function useStreamData(path: string) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         while (active) {
-          const { done, value } = await reader.read();
+          const { done, value } = await reader.read().catch(cause => {
+            throw new Error('页面生成中断，请重试', { cause });
+          });
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n'); buffer = lines.pop() || '';
