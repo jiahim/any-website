@@ -7,6 +7,7 @@ import {
 const FRESH_MS = 30 * 60_000;
 const MAX_AGE_MS = 24 * 60 * 60_000;
 const DEFAULT_API_BASE = 'https://newsnow.busiyi.world';
+const NEWSNOW_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36';
 const PLATFORMS = [
   { source: 'weibo', id: 'weibo' },
   { source: 'bilibili', id: 'bilibili-hot-search' },
@@ -91,7 +92,7 @@ async function fetchFeed(feed: Feed, attempt: FeedAttempt): Promise<Suggestion[]
     cache: 'no-store',
     redirect: 'error',
     signal: attempt.signal,
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', 'User-Agent': NEWSNOW_USER_AGENT },
   });
   attempt.phase = 'http_response';
   attempt.httpStatus = response.status;
