@@ -5,9 +5,16 @@ export function isWithinAge(fetchedAt: Date, maxAgeMs: number, now = Date.now())
   const age = now - fetchedAt.getTime();
   return Number.isFinite(age) && age >= 0 && age < maxAgeMs;
 }
+export const SOCIAL_SOURCE_LABELS = {
+  weibo: '微博',
+  bilibili: 'B 站',
+  douyin: '抖音',
+} as const;
+export type SocialSource = keyof typeof SOCIAL_SOURCE_LABELS;
+
 export interface Suggestion {
   path: string;
-  source: 'local' | 'baidu';
+  source: 'local' | SocialSource;
   score?: number;
   fetchedAt?: string;
 }
@@ -58,25 +65,81 @@ export function rankSearches(logs: Activity[], feedback: Feedback[], blocked: st
   }).sort((a,b) => b.score - a.score || a.path.localeCompare(b.path, 'zh-CN'));
 }
 
-export function parseBaiduHotSearches(html: string): Suggestion[] {
-  const match = html.match(/<!--s-data:([\s\S]*?)-->/);
-  if (!match) throw new Error('热榜结构已变化');
-  const parsed = JSON.parse(match[1]);
-  const cards: unknown = parsed?.data?.cards ?? parsed?.cards;
-  if (!Array.isArray(cards)) throw new Error('热榜数据无效');
+export function normalizeSocialKeyword(value: unknown): string | null {
+  const path = normalizeSearchPath(value);
+  if (!path || path.length < 2 || path.length > 12) return null;
+  return /^[\p{L}\p{N}]+(?:[ :·-][\p{L}\p{N}]+)*$/u.test(path) && /\p{L}/u.test(path) ? path : null;
+}
+
+export class SocialHotSearchParseError extends Error {
+  readonly reason: 'invalid_payload' | 'no_eligible_titles';
+  readonly upstreamItems?: number;
+
+  constructor(reason: SocialHotSearchParseError['reason'], upstreamItems?: number) {
+    super(reason);
+    this.reason = reason;
+    this.upstreamItems = upstreamItems;
+  }
+}
+
+export function parseSocialHotSearchTitles(payload: unknown): string[] {
+  const board = payload as { status?: unknown; items?: unknown } | null;
+  if ((board?.status !== 'success' && board?.status !== 'cache') || !Array.isArray(board.items)) {
+    throw new SocialHotSearchParseError('invalid_payload');
+  }
+
+  const titles = new Set<string>();
+  for (const item of board.items.slice(0, 50)) {
+    if (typeof item?.title !== 'string' || item.title.length > 180) continue;
+    const title = item.title.trim();
+    if (title) titles.add(title);
+  }
+  if (!titles.size) throw new SocialHotSearchParseError('no_eligible_titles', board.items.length);
+  return [...titles];
+}
+
+export interface SocialHotTitle {
+  title: string;
+  source: SocialSource;
+}
+
+export function selectModelSocialKeywords(titles: readonly SocialHotTitle[], output: unknown): Suggestion[] {
+  if (!Array.isArray(output) || output.length !== titles.length) {
+    throw new Error('Incomplete social keyword output');
+  }
+
+  const keywords = new Map<number, string | null>();
+  for (const item of output) {
+    const id = item?.id;
+    const keyword = item?.keyword;
+    if (!Number.isInteger(id) || id < 1 || id > titles.length || keywords.has(id)
+        || (keyword !== null && typeof keyword !== 'string')) {
+      throw new Error('Invalid social keyword output');
+    }
+    keywords.set(id, keyword);
+  }
+
+  return titles.flatMap(({ title, source }, index) => {
+    const path = normalizeSocialKeyword(keywords.get(index + 1));
+    if (!path) return [];
+    const text = title.normalize('NFKC');
+    const start = text.indexOf(path);
+    if (start < 0 || /\d\s*:\s*\d|\d+分$/u.test(path)) return [];
+    // A team followed by the first half of a score is still a score.
+    if (/\d$/u.test(path) && /^\s*:\s*\d/u.test(text.slice(start + path.length))) return [];
+    return [{ path, source }];
+  });
+}
+
+export function interleaveSocialSearches(feeds: readonly Suggestion[][]): Suggestion[] {
   const result: Suggestion[] = [];
-  const seen = new Set<string>();
-  for (const card of cards) {
-    if (!Array.isArray(card?.content)) continue;
-    for (const item of card.content) {
-      const path = normalizeSearchPath(item?.word ?? item?.query ?? item?.title);
-      if (!path || path.length > 60 || seen.has(path.toLocaleLowerCase())) continue;
-      seen.add(path.toLocaleLowerCase());
-      result.push({ path, source: 'baidu' });
+  const length = Math.max(0, ...feeds.map(feed => feed.length));
+  for (let rank = 0; rank < length; rank++) {
+    for (const feed of feeds) {
+      if (feed[rank]) result.push(feed[rank]);
     }
   }
-  if (!result.length) throw new Error('热榜为空');
-  return result.sort((a,b) => Number(/\p{Script=Han}/u.test(b.path)) - Number(/\p{Script=Han}/u.test(a.path))).slice(0,50);
+  return result;
 }
 
 export function selectSuggestions(items: Suggestion[], limit: number): Suggestion[] {

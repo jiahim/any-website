@@ -4,5 +4,20 @@
     "deploymentEnabled": {
       "codex/stream-completion": false
     }
+  },
+  "functions": {
+    "app/api/social-hot-words/refresh/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "schedule/v1beta"
+        }
+      ]
+    }
+  },
+  "schedules": {
+    "social-hot-words": {
+      "schedule": "*/30 * * * *",
+      "function": "api/social-hot-words/refresh"
+    }
   }
 }
