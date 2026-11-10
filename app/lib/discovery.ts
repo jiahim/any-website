@@ -86,10 +86,21 @@ function socialKeyword(title: string): string | null {
   return normalizeSocialKeyword(candidate);
 }
 
+export class SocialHotSearchParseError extends Error {
+  readonly reason: 'invalid_payload' | 'no_eligible_keywords';
+  readonly upstreamItems?: number;
+
+  constructor(reason: SocialHotSearchParseError['reason'], upstreamItems?: number) {
+    super(reason);
+    this.reason = reason;
+    this.upstreamItems = upstreamItems;
+  }
+}
+
 export function parseSocialHotSearches(payload: unknown, source: SocialSource): Suggestion[] {
   const board = payload as { status?: unknown; items?: unknown } | null;
   if ((board?.status !== 'success' && board?.status !== 'cache') || !Array.isArray(board.items)) {
-    throw new Error('热榜数据无效');
+    throw new SocialHotSearchParseError('invalid_payload');
   }
 
   const candidates: Suggestion[] = [];
@@ -98,7 +109,7 @@ export function parseSocialHotSearches(payload: unknown, source: SocialSource): 
     const path = socialKeyword(item.title);
     if (path) candidates.push({ path, source });
   }
-  if (!candidates.length) throw new Error('热榜没有可用短词');
+  if (!candidates.length) throw new SocialHotSearchParseError('no_eligible_keywords', board.items.length);
   return selectSuggestions(candidates, 50);
 }
 
