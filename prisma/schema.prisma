@@ -104,3 +104,23 @@ model HotSearchSnapshot {
 
   @@map("hot_search_snapshots")
 }
+
+model SiteFeedback {
+  id                   String    @id @default(uuid()) @db.Uuid
+  visitorHash          String
+  submissionId         String    @db.Uuid
+  message              String
+  screenshotMimeType   String?
+  screenshotBytes      Bytes?
+  createdAt            DateTime  @default(now())
+  mailStatus           String    @default("disabled")
+  mailAttempts         Int       @default(0)
+  mailNextAttemptAt    DateTime?
+  mailClaimedAt        DateTime?
+  mailSentAt           DateTime?
+
+  @@unique([visitorHash, submissionId])
+  @@index([visitorHash, createdAt])
+  @@index([mailStatus, mailNextAttemptAt])
+  @@map("site_feedback")
+}

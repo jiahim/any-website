@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "codex/stream-completion": false
+      "codex/stream-completion": false,
+      "codex/restore-site-feedback": false
     }
   },
   "functions": {
@@ -12,6 +13,14 @@
           "type": "schedule/v1beta"
         }
       ]
+    },
+    "app/api/site-feedback/notify/route.ts": {
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "site-feedback-mail"
+        }
+      ]
     }
   },
   "schedules": {
@@ -19,5 +28,11 @@
       "schedule": "*/30 * * * *",
       "function": "api/social-hot-words/refresh"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/site-feedback/recover",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }

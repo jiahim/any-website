@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SOCIAL_SOURCE_LABELS, type Suggestion } from "@/app/lib/discovery";
 import { sanitizeRandomWordHistory } from "@/app/lib/randomWord";
+import SiteFeedback from "@/app/ui/components/SiteFeedback";
 
 // 本地存储键名
 const RANDOM_WORDS_KEY = "random_words_history";
@@ -266,6 +267,7 @@ export default function Home() {
             网站任意门
           </span>
           <div className="flex h-full items-center gap-4 sm:gap-6">
+            <SiteFeedback />
             {CONTACT_QR_URL && (
               <div
                 ref={contactRef}
